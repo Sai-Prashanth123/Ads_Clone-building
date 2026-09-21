@@ -60,12 +60,29 @@ THE CONTRACT — all three must hold at once:
 
 If a phrase in your draft could be found by searching the original, rewrite that line.
 
-IMAGE PROMPTS:
-Write a prompt a text-to-image model can execute with no further context. It must keep the original's COMPOSITION and emotional read, while changing:
-- the colour palette (state the new one explicitly)
-- the literal subject matter
-- the render style
-Name the layout, the lighting, the mood and any text to render. If the original burnt a headline into the image, your prompt must specify new headline text, in quotes, short enough to render cleanly.
+IMAGE PROMPTS — the creative must inherit the original's MECHANISM, not just its mood.
+
+The DNA tells you the visual's job (the "roleInAd" field) and why it earned attention. That job is the thing being cloned. Work in this order:
+
+1. KEEP, always:
+   - the job the image does (proof, pattern-interrupt, contrast, punchline, credibility)
+   - the compositional relationship that delivers it (e.g. one-vs-many, before/after, close-up over wide)
+   - the emotional read
+
+2. KEEP the FORMAT when the format is itself the reason it works.
+   This is the trap: if the image performs because it looks like an organic screenshot, a native forum or chat post, a real dashboard, a candid photo or a familiar meme, then that format IS the mechanism. Cloning it as a polished illustration or a stock-style scene throws away the entire insight. A screenshot clones as a DIFFERENT screenshot. A meme clones as a DIFFERENT meme.
+   Only change the render style when the style is incidental — decoration rather than mechanism.
+
+3. CHANGE everything identifying:
+   - the colour palette (state the new one explicitly)
+   - the literal subject matter, product, people and setting
+   - the specific numbers, names and wording shown
+
+Then write the prompt so a text-to-image model can execute it with no further context: name the layout, what occupies each region, the lighting, the mood, and any text to render.
+
+TEXT INSIDE THE IMAGE — image models garble long passages into nonsense letterforms. Specify at most ONE short line of legible text, under about eight words, in quotes. Everything else should be described as visual texture ("further lines of smaller body text, not legible"), so the render reads as an authentic screenshot without attempting paragraphs it cannot spell. Never ask for a full sentence of body copy.
+
+Never describe a generic desk, laptop, dashboard, notebook or "modern workspace" unless the original's mechanism genuinely was that. Those read as stock photography and kill the ad.
 
 Write the three angles as specified. Same source DNA, genuinely different executions — not one post with three sets of synonyms.`;
 

@@ -279,6 +279,14 @@ export function VariationCard({
 
         {showPrompt && (
           <div className="sunken p-2.5 mt-2">
+            {variation.visualMechanism && (
+              <>
+                <div className="t-label mb-1">Mechanism carried over</div>
+                <p className="text-[11px] leading-[1.5] text-[var(--ink)] mb-2">
+                  {variation.visualMechanism}
+                </p>
+              </>
+            )}
             <div className="t-label mb-1">Image prompt</div>
             <p className="text-[11px] leading-[1.5] text-[var(--ink-2)] break-words">
               {variation.imagePrompt}

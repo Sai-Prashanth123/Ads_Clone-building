@@ -156,7 +156,12 @@ export const variationSchema = z.object({
   imagePrompt: z
     .string()
     .describe(
-      "A complete text-to-image prompt. Must specify a different palette, different subject and different render style from the original, while keeping its composition and emotional read.",
+      "A complete text-to-image prompt. Inherit the original visual's JOB (visual.roleInAd) and its compositional relationship, and keep its FORMAT whenever the format is itself why it works — an organic-looking screenshot clones as a different screenshot, a meme as a different meme. Change the palette, subject, setting and any shown text. Never a generic desk, laptop or 'modern workspace' unless that was genuinely the mechanism.",
+    ),
+  visualMechanism: z
+    .string()
+    .describe(
+      "One clause naming what the original visual did that this creative reproduces — the receipt that the insight survived. e.g. 'looks like a real forum post rather than an ad'.",
     ),
   imageNegatives: z
     .string()

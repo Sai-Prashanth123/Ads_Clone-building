@@ -86,6 +86,7 @@ function variationsPayload(text: string) {
         imagePrompt: "A wide teal desk scene rendered as flat vector art.",
         imageNegatives: "photorealism, clutter",
         altText: "Desk scene",
+        visualMechanism: "keeps the one-vs-many contrast that carried the joke",
         rationale: "Keeps the beats, changes the surface.",
       }),
     ),
