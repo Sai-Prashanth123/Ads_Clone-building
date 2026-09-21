@@ -1,0 +1,50 @@
+# AdClone Studio on Render.
+#
+# Render runs a persistent Node server rather than per-request functions, which
+# suits this app: a single clone run has been measured at 194s when Gemini's
+# free tier forces model switches, and there is no request-duration ceiling to
+# design around.
+#
+# Every credential is marked `sync: false` so it is set in the Render dashboard
+# and never committed here. None of them are NEXT_PUBLIC_ — the browser bundle
+# must stay free of keys.
+
+services:
+  - type: web
+    name: adclone-studio
+    runtime: node
+    plan: free
+    region: oregon
+
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+
+    # Next.js binds the port Render provides.
+    healthCheckPath: /api/setup
+
+    autoDeployTrigger: commit
+
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+
+      # Next.js needs this to build and run in production mode.
+      - key: NODE_ENV
+        value: production
+
+      # --- Model provider (analysis + vision) ---------------------------
+      - key: GOOGLE_GENERATIVE_AI_API_KEY
+        sync: false
+
+      # --- Image generation ---------------------------------------------
+      - key: CLOUDFLARE_ACCOUNT_ID
+        sync: false
+      - key: CLOUDFLARE_API_TOKEN
+        sync: false
+
+      # --- Swipe file (optional; the studio runs without it) ------------
+      - key: SUPABASE_URL
+        sync: false
+      # Prefer SUPABASE_SECRET_KEY so RLS can deny anon outright.
+      - key: SUPABASE_SECRET_KEY
+        sync: false

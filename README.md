@@ -122,9 +122,13 @@ searches them by copy, author, or hook type as the collection grows.
 Backed by Supabase (Postgres + object storage). Set:
 
 ```
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
+SUPABASE_URL=
+SUPABASE_SECRET_KEY=
 ```
+
+Neither is prefixed `NEXT_PUBLIC_`, deliberately: that prefix inlines a value
+into the browser bundle. All queries run server-side in `app/api/swipes`, so
+the client never needs credentials.
 
 Without them the studio works fully — it just doesn't remember anything.
 
@@ -138,23 +142,26 @@ Schema notes:
   without that step every delete would leave an invisible orphaned blob —
   caught by round-trip testing the real database, not by the type checker.
 
-> **Security:** RLS is enabled on all three tables, but the policies currently
-> grant the `anon` role full access so the app works with no user accounts.
-> Anyone holding the project URL and publishable key can read and write the
-> swipe file. Before deploying this publicly, add auth and replace each
-> `using (true)` with an ownership check.
+> **Security:** credentials are server-side only — a production build has been
+> checked for them and the browser bundle contains none. With
+> `SUPABASE_SECRET_KEY` set, the RLS policies deny `anon` outright, so the
+> database is unreachable except through this app's own API routes.
+>
+> Those routes are still unauthenticated. A public deployment therefore needs
+> a gate in front of it — Render/Vercel access protection, or real auth — or
+> anyone with the URL can use the studio and your swipe file.
 
 ## Models
 
 Chosen by `lib/ai/provider.ts` from whichever key is present. On the Gateway
 these are plain `provider/model` strings; direct providers use their own SDK.
 
-**Analysis / copy** — needs vision to read the source creative:
+**Analysis / copy** — needs vision to read the source creative. Listed in fallback order: free-tier quota is metered *per model*, so a rate-limited model is not a rate-limited account.
 
 | Provider | Model |
 |---|---|
 | Gateway | `anthropic/claude-opus-5` |
-| Google | `gemini-3-pro-preview` |
+| Google | `gemini-3.6-flash` → `gemini-3.5-flash` → `gemini-3-flash-preview` |
 | Anthropic | `claude-opus-5` |
 | OpenAI | `gpt-5.6-sol` |
 

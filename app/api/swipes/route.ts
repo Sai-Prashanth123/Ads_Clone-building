@@ -1,4 +1,4 @@
-import { isSwipeFileEnabled } from "@/lib/db/client";
+import { isSwipeFileEnabled, SWIPE_FILE_SETUP_HINT } from "@/lib/db/client";
 import { deleteSwipe, listSwipes, saveSwipe } from "@/lib/db/swipes";
 import { describeError } from "@/lib/ai/errors";
 import { adDnaSchema } from "@/lib/ai/schemas";
@@ -39,10 +39,7 @@ const saveSchema = z.object({
 
 function disabled() {
   return Response.json(
-    {
-      error:
-        "The swipe file is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY in .env.local.",
-    },
+    { error: SWIPE_FILE_SETUP_HINT },
     { status: 503 },
   );
 }
