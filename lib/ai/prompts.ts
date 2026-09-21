@@ -1,4 +1,5 @@
 import type { SourcePost } from "../x/types";
+import type { PlatformSpec } from "../platforms";
 import { ANGLE_LABELS, type AdDna, type BrandProfile, hasBrand } from "./schemas";
 import { engagementRate } from "../x/types";
 
@@ -90,10 +91,12 @@ export function variationsPrompt(args: {
   post: SourcePost;
   dna: AdDna;
   brand?: BrandProfile | null;
+  /** The target platform's field structure and limits. */
+  platform?: PlatformSpec;
   /** Phrases a previous attempt lifted; must not reappear. */
   forbiddenPhrases?: string[];
 }): string {
-  const { post, dna, brand, forbiddenPhrases } = args;
+  const { post, dna, brand, platform, forbiddenPhrases } = args;
 
   const angleSpec = Object.entries(ANGLE_LABELS)
     .map(([id, v]) => `- ${id} — ${v.label}: ${v.blurb}`)
@@ -134,6 +137,32 @@ export function variationsPrompt(args: {
       ].join("\n")
     : "";
 
+  // Naming the destination changes the writing: a LinkedIn intro that truncates
+  // at 150 characters is a different craft problem from a 280-character post.
+  const platformBlock = platform
+    ? [
+        "",
+        `--- WRITING FOR ${platform.label.toUpperCase()} · ${platform.formatName} ---`,
+        ...platform.fields.map((f) => {
+          const limit = f.recommended
+            ? `max ${f.max}, truncates at ${f.recommended}`
+            : `max ${f.max}`;
+          const count = f.repeat
+            ? ` — supply ${f.repeat.min}–${f.repeat.max} of these`
+            : "";
+          return `• ${f.label} (${limit})${count}: ${f.hint}`;
+        }),
+        platform.ctaOptions
+          ? `The call to action must be exactly one of: ${platform.ctaOptions.join(", ")}.`
+          : "",
+        "",
+        "Count characters carefully. A field over its hard limit is rejected by the platform and the whole variation is wasted. Where a field truncates, put the decisive words before the cut.",
+        "--- END FORMAT ---",
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : "";
+
   return [
     "--- ORIGINAL POST (for contrast — never copy from it) ---",
     post.text,
@@ -142,6 +171,7 @@ export function variationsPrompt(args: {
     "--- EXTRACTED DNA ---",
     JSON.stringify(dna, null, 2),
     "--- END DNA ---",
+    platformBlock,
     brandBlock,
     forbiddenBlock,
     "",

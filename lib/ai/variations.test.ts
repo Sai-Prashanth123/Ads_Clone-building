@@ -81,7 +81,7 @@ function variationsPayload(text: string) {
     variations: (["direct-swap", "aggressive", "minimalist"] as const).map(
       (angle) => ({
         angle,
-        text,
+        copy: { text },
         beatMapping: [{ role: "hook" as const, line: text.split("\n")[0] }],
         imagePrompt: "A wide teal desk scene rendered as flat vector art.",
         imageNegatives: "photorealism, clutter",
@@ -145,6 +145,7 @@ describe("generateVariations", () => {
     expect(result.every((v) => v.regenerated)).toBe(true);
     expect(result.every((v) => v.originality.pass)).toBe(true);
     expect(result.every((v) => v.text === CLEAN)).toBe(true);
+    expect(result.every((v) => v.spec.pass)).toBe(true);
   });
 
   it("keeps the first attempt when the retry is no better", async () => {

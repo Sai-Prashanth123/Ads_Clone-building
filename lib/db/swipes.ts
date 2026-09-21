@@ -76,8 +76,15 @@ export async function saveSwipe(args: {
   post: SourcePost;
   dna: AdDna;
   variations: ScoredVariation[];
-  /** angle -> data URL, for creatives already generated in the session. */
-  images?: Record<string, string>;
+  /**
+   * angle -> the creative generated this session, plus the prompt that made
+   * it. The prompt may have been edited on the card, so it is recorded rather
+   * than the model's original — otherwise the row claims a prompt that never
+   * produced anything.
+   */
+  images?: Record<string, { dataUrl: string; prompt?: string }>;
+  /** Which platform the copy was written for. */
+  platform?: string;
 }): Promise<{ id: string }> {
   const db = getDb();
 
@@ -93,6 +100,7 @@ export async function saveSwipe(args: {
       engagement: args.post.engagement,
       dna: args.dna,
       fetched_via: args.post.source,
+      platform: args.platform ?? "x",
     })
     .select("id")
     .single();
@@ -105,9 +113,9 @@ export async function saveSwipe(args: {
   // the saved record.
   const rows = await Promise.all(
     args.variations.map(async (v) => {
-      const dataUrl = args.images?.[v.angle];
-      const imageUrl = dataUrl
-        ? await uploadCreative(swipe.id, v.angle, dataUrl)
+      const generated = args.images?.[v.angle];
+      const imageUrl = generated
+        ? await uploadCreative(swipe.id, v.angle, generated.dataUrl)
         : null;
 
       return {
@@ -115,11 +123,14 @@ export async function saveSwipe(args: {
         angle: v.angle,
         body: v.text,
         beat_mapping: v.beatMapping,
-        image_prompt: v.imagePrompt,
+        image_prompt: generated?.prompt ?? v.imagePrompt,
         image_negatives: v.imageNegatives,
         alt_text: v.altText,
         rationale: v.rationale,
         originality: v.originality,
+        spec_report: v.spec ?? null,
+        fields: v.fields ?? null,
+        target_platform: args.platform ?? "x",
         regenerated: v.regenerated,
         image_url: imageUrl,
       };

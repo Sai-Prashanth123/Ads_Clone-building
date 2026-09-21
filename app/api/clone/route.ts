@@ -5,6 +5,7 @@ import { encodeEvent, type CloneEvent } from "@/lib/ai/events";
 import { brandProfileSchema } from "@/lib/ai/schemas";
 import type { SourcePost } from "@/lib/x/types";
 import { describeError } from "@/lib/ai/errors";
+import { getPlatform } from "@/lib/platforms";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -13,6 +14,7 @@ export const maxDuration = 300;
 const bodySchema = z.object({
   url: z.string().optional(),
   brand: brandProfileSchema.nullish(),
+  targetPlatform: z.enum(["x", "linkedin", "meta", "google"]).optional(),
   manual: z
     .object({
       text: z.string().min(1),
@@ -97,6 +99,7 @@ export async function POST(req: Request) {
           post,
           dna,
           brand: body.brand ?? null,
+          platform: getPlatform(body.targetPlatform),
           onProgress: (p) => {
             if (p.phase === "drafting") {
               send({

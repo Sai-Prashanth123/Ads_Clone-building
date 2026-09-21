@@ -7,6 +7,8 @@ import { DnaPanel } from "@/components/DnaPanel";
 import { OriginalCard } from "@/components/OriginalCard";
 import { VariationCard } from "@/components/VariationCard";
 import { VariationSkeletonRow } from "@/components/VariationSkeleton";
+import { PlatformPicker } from "@/components/PlatformPicker";
+import { getPlatform, type PlatformId } from "@/lib/platforms";
 import { Panel, StatusBadge } from "@/components/primitives";
 import {
   createEventParser,
@@ -53,7 +55,10 @@ export default function Page() {
   const [manualText, setManualText] = React.useState("");
   const [manualImage, setManualImage] = React.useState("");
 
-  const [images, setImages] = React.useState<Record<string, string>>({});
+  // angle -> the creative plus the prompt that actually rendered it.
+  const [images, setImages] = React.useState<
+    Record<string, { dataUrl: string; prompt: string }>
+  >({});
   const [saveState, setSaveState] = React.useState<
     { status: "idle" } | { status: "saving" } | { status: "saved" } | { status: "error"; message: string }
   >({ status: "idle" });
@@ -73,6 +78,8 @@ export default function Page() {
     }, 100);
     return () => clearInterval(id);
   }, [running]);
+
+  const [targetPlatform, setTargetPlatform] = React.useState<PlatformId>("x");
 
   const [setup, setSetup] = React.useState<Setup | null>(null);
 
@@ -125,6 +132,7 @@ export default function Page() {
           manual: useManual
             ? { text: manualText, imageUrl: manualImage.trim() || undefined }
             : undefined,
+          targetPlatform,
           brand:
             brandCtl.enabled && hasBrand(brandCtl.brand) ? brandCtl.brand : null,
         }),
@@ -188,7 +196,13 @@ export default function Page() {
       const res = await fetch("/api/swipes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ post, dna, variations, images }),
+        body: JSON.stringify({
+          post,
+          dna,
+          variations,
+          images,
+          platform: targetPlatform,
+        }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? "Could not save.");
@@ -300,7 +314,15 @@ export default function Page() {
           </button>
         </div>
 
-        <div className="flex items-center gap-2 mt-2 flex-wrap">
+        <div className="mt-3 pt-3 border-t border-[var(--rule)]">
+          <PlatformPicker
+            value={targetPlatform}
+            onChange={setTargetPlatform}
+            disabled={running}
+          />
+        </div>
+
+        <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[var(--rule)] flex-wrap">
           <span className="t-label">Try:</span>
           {SAMPLES.map((s) => (
             <button
@@ -524,8 +546,9 @@ export default function Page() {
                 variation={v}
                 referenceImageUrl={post?.media[0]?.url}
                 imageChoices={setup?.imageChoices ?? []}
-                onImageGenerated={(angle, dataUrl) =>
-                  setImages((prev) => ({ ...prev, [angle]: dataUrl }))
+                platform={getPlatform(targetPlatform)}
+                onImageGenerated={(angle, dataUrl, prompt) =>
+                  setImages((prev) => ({ ...prev, [angle]: { dataUrl, prompt } }))
                 }
               />
               </div>

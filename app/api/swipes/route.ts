@@ -34,7 +34,13 @@ const saveSchema = z.object({
   }),
   dna: adDnaSchema,
   variations: z.array(z.looseObject({ angle: z.string(), text: z.string() })),
-  images: z.record(z.string(), z.string()).optional(),
+  platform: z.string().optional(),
+  images: z
+    .record(
+      z.string(),
+      z.object({ dataUrl: z.string(), prompt: z.string().optional() }),
+    )
+    .optional(),
 });
 
 function disabled() {
@@ -78,6 +84,7 @@ export async function POST(req: Request) {
         typeof saveSwipe
       >[0]["variations"],
       images: body.images,
+      platform: body.platform,
     });
     return Response.json(result, { status: 201 });
   } catch (err) {

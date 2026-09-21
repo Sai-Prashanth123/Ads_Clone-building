@@ -8,6 +8,8 @@
  * time before showing the same error.
  */
 
+import { withRateLimit } from "./limiter";
+
 const TRANSIENT =
   /high demand|overloaded|unavailable|temporarily|try again|503|502|504|ECONNRESET|ETIMEDOUT|fetch failed/i;
 
@@ -84,13 +86,35 @@ export async function withModelFallback<T, M extends { id: string }>(
     const isLast = i === models.length - 1;
 
     try {
-      // Fewer in-place retries when there is somewhere else to go: waiting 45s
-      // for one model is worse than trying the next immediately.
-      return await withRetry(() => fn(entry), {
-        attempts: isLast ? 3 : 1,
-        onRetry: opts.onRetry,
-        baseDelayMs: opts.baseDelayMs,
-      });
+      // Check local quota before spending a request to be refused. On the last
+      // model there is nowhere else to go, so waiting beats failing; before
+      // that, moving on is faster than waiting.
+      const gated = await withRateLimit(
+        entry.id,
+        () =>
+          // Fewer in-place retries when there is somewhere else to go: waiting
+          // 45s for one model is worse than trying the next immediately.
+          withRetry(() => fn(entry), {
+            attempts: isLast ? 3 : 1,
+            onRetry: opts.onRetry,
+            baseDelayMs: opts.baseDelayMs,
+          }),
+        {
+          maxWaitMs: isLast ? 65_000 : 0,
+          onWait: (ms) => opts.onRetry?.(0, ms, new Error("local rate limit")),
+        },
+      );
+
+      if (gated !== null) return gated;
+
+      // Locally rate-limited with somewhere else to try.
+      if (!isLast) {
+        opts.onFallback?.(entry.id, models[i + 1].id, "quota");
+        continue;
+      }
+      throw new Error(
+        `Every model is rate-limited locally. Free-tier quota refills within a minute.`,
+      );
     } catch (err) {
       lastError = err;
       if (isLast || !isTransient(err)) throw err;

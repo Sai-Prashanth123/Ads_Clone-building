@@ -1,7 +1,8 @@
 import { generateObject } from "ai";
 import { getAnalysisModels, type NamedModel } from "./provider";
 import {
-  variationsSchema,
+  angles,
+  buildVariationsSchema,
   type AdDna,
   type BrandProfile,
   type Variation,
@@ -10,12 +11,49 @@ import { VARIATIONS_SYSTEM, variationsPrompt } from "./prompts";
 import { checkOriginality, type OriginalityReport } from "../originality";
 import { withModelFallback } from "./retry";
 import type { SourcePost } from "../x/types";
+import { PLATFORMS, fieldsToText, type PlatformSpec } from "../platforms";
+import { validateAgainstSpec, type SpecReport } from "../platforms/validate";
 
 export type ScoredVariation = Variation & {
   originality: OriginalityReport;
+  /** Per-field character check against the target platform's published spec. */
+  spec: SpecReport;
   /** True when this text is the product of an enforced rewrite. */
   regenerated: boolean;
 };
+
+type RawVariation = {
+  angle: string;
+  copy: Record<string, string | string[]>;
+  beatMapping: { role: string; line: string }[];
+  imagePrompt: string;
+  visualMechanism: string;
+  imageNegatives: string;
+  altText: string;
+  rationale: string;
+};
+
+/**
+ * Flatten platform-shaped copy back into the single `text` the originality
+ * guard and the library expect, while keeping the structured fields alongside
+ * it. Nothing downstream had to change because of this.
+ */
+function normalise(
+  raw: RawVariation,
+  platform: PlatformSpec,
+  sourceText: string,
+): ScoredVariation {
+  const text = fieldsToText(platform, raw.copy);
+
+  return {
+    ...(raw as unknown as Variation),
+    text,
+    fields: raw.copy,
+    originality: checkOriginality(text, sourceText),
+    spec: validateAgainstSpec(platform, raw.copy),
+    regenerated: false,
+  };
+}
 
 /**
  * Generate the three angles, then hold them to the originality contract.
@@ -35,12 +73,25 @@ export async function generateVariations(args: {
   post: SourcePost;
   dna: AdDna;
   brand?: BrandProfile | null;
+  /** Which platform's field structure and limits to write for. */
+  platform?: PlatformSpec;
   /** Injectable so the retry/scoring logic can be tested without a provider. */
   models?: NamedModel[];
   /** The retry doubles the wait, so the UI has to be told it is happening. */
   onProgress?: (progress: VariationProgress) => void;
 }): Promise<ScoredVariation[]> {
-  const { post, dna, brand, models = getAnalysisModels(), onProgress } = args;
+  const {
+    post,
+    dna,
+    brand,
+    platform = PLATFORMS.x,
+    models = getAnalysisModels(),
+    onProgress,
+  } = args;
+
+  // The schema carries the platform's real fields and limits, so the model
+  // writes LinkedIn copy rather than a blob someone later has to reshape.
+  const schema = buildVariationsSchema(platform, angles.length);
 
   const notify = {
     onRetry: (attempt: number, delayMs: number) =>
@@ -62,18 +113,16 @@ export async function generateVariations(args: {
     ({ model }) =>
       generateObject({
         model,
-        schema: variationsSchema,
+        schema,
         system: VARIATIONS_SYSTEM,
-        prompt: variationsPrompt({ post, dna, brand }),
+        prompt: variationsPrompt({ post, dna, brand, platform }),
       }),
     notify,
   );
 
-  const scored: ScoredVariation[] = first.object.variations.map((v) => ({
-    ...v,
-    originality: checkOriginality(v.text, post.text),
-    regenerated: false,
-  }));
+  const scored: ScoredVariation[] = first.object.variations.map((v) =>
+    normalise(v as RawVariation, platform, post.text),
+  );
 
   onProgress?.({ phase: "checking" });
 
@@ -99,18 +148,18 @@ export async function generateVariations(args: {
       ({ model }) =>
         generateObject({
           model,
-          schema: variationsSchema,
+          schema,
           system: VARIATIONS_SYSTEM,
-          prompt: variationsPrompt({ post, dna, brand, forbiddenPhrases }),
+          prompt: variationsPrompt({ post, dna, brand, platform, forbiddenPhrases }),
         }),
       notify,
     );
 
     const retried = new Map(
-      retry.object.variations.map((v) => [
-        v.angle,
-        { ...v, originality: checkOriginality(v.text, post.text) },
-      ]),
+      retry.object.variations.map((v) => {
+        const n = normalise(v as RawVariation, platform, post.text);
+        return [n.angle, n] as const;
+      }),
     );
 
     // Keep whichever attempt scored better, per angle — a retry that made

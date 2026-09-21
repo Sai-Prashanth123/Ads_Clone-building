@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { PlatformSpec } from "../platforms";
 
 /* ------------------------------------------------------------------ *
  * Ad DNA — what the deconstruction pass extracts from the source post.
@@ -143,6 +144,9 @@ export const variationSchema = z.object({
   text: z
     .string()
     .describe("The complete post, ready to paste. Real line breaks."),
+  /** Platform-shaped copy. Populated by buildVariationSchema; `text` stays as
+   *  the flattened form so originality scoring and the library keep working. */
+  fields: z.record(z.string(), z.union([z.string(), z.array(z.string())])).optional(),
   beatMapping: z
     .array(
       z.object({
@@ -210,3 +214,64 @@ export const cloneResultSchema = z.object({
 });
 
 export type CloneResult = z.infer<typeof cloneResultSchema>;
+
+/* ------------------------------------------------------------------ *
+ * Platform-shaped variations
+ * ------------------------------------------------------------------ */
+
+/**
+ * Build a variation schema whose copy fields are the target platform's actual
+ * fields, rather than one undifferentiated blob of text.
+ *
+ * The character limits go into each field's description so the model is told
+ * the constraint — but they are still enforced afterwards by
+ * lib/platforms/validate.ts, because models miscount characters and an ad two
+ * characters over is rejected by the platform, not by us.
+ */
+export function buildVariationSchema(spec: PlatformSpec) {
+  const copy: Record<string, z.ZodTypeAny> = {};
+
+  for (const field of spec.fields) {
+    const limit = field.recommended
+      ? `Hard limit ${field.max} characters; aim under ${field.recommended}, where it truncates.`
+      : `Hard limit ${field.max} characters.`;
+
+    const describe = `${field.label}. ${limit} ${field.hint}`;
+
+    copy[field.key] = field.repeat
+      ? z
+          .array(z.string().max(field.max))
+          .min(field.repeat.min)
+          .max(field.repeat.max)
+          .describe(describe)
+      : z.string().max(field.max).describe(describe);
+  }
+
+  return z.object({
+    angle: z.enum(angles),
+    copy: z.object(copy).describe(`Copy written for ${spec.label} ${spec.formatName}.`),
+    beatMapping: z
+      .array(
+        z.object({
+          role: z.enum(beatRoles),
+          line: z.string().describe("The line from your new ad serving this beat."),
+        }),
+      )
+      .min(1)
+      .max(10)
+      .describe("Proof the original skeleton survived the rewrite."),
+    imagePrompt: variationSchema.shape.imagePrompt,
+    visualMechanism: variationSchema.shape.visualMechanism,
+    imageNegatives: variationSchema.shape.imageNegatives,
+    altText: z.string(),
+    rationale: variationSchema.shape.rationale,
+  });
+}
+
+export function buildVariationsSchema(spec: PlatformSpec, count: number) {
+  return z.object({
+    variations: z.array(buildVariationSchema(spec)).length(count),
+  });
+}
+
+export type PlatformVariation = z.infer<ReturnType<typeof buildVariationSchema>>;
