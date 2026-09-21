@@ -1,26 +1,537 @@
 @import "tailwindcss";
 
+/* ============================================================
+   THOUGHT PILOT · CONSOLE
+   A precision instrument under glass.
+   One theme, white only. Shades not hues. Radius 0.
+   ============================================================ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* -- Ground & surface ------------------------------------ */
+  --canvas: #e6e4ee;
+  --paper: rgba(255, 255, 255, 0.72);
+  --surface: rgba(255, 255, 255, 0.5);
+  --sunken: rgba(10, 10, 11, 0.04);
+
+  /* -- Ink & rules ----------------------------------------- */
+  --ink: #0a0a0b;
+  --ink-2: #35353c;
+  --muted: #63636d;
+  --rule: rgba(10, 10, 11, 0.1);
+  --rule-strong: rgba(10, 10, 11, 0.2);
+
+  /* -- Brand fill & the only two hues ---------------------- */
+  --brand: #b9a8ff;
+  --brand-deep: #5b3fd6;
+  --alert: #c8102e;
+  --caution: #7a5c00;
+
+  /* -- Glass ----------------------------------------------- */
+  --glass-blur: blur(20px) saturate(150%);
+  --glass-rim: inset 1px 1px 0 rgba(255, 255, 255, 0.55),
+    inset -1px -1px 0 rgba(10, 10, 11, 0.045);
+  --shadow-1: 0 1px 2px rgba(10, 10, 11, 0.05);
+  --shadow-2: 0 2px 10px rgba(10, 10, 11, 0.07);
+  --shadow-3: 0 8px 30px rgba(10, 10, 11, 0.1);
+
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
+    "Liberation Mono", monospace;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-canvas: var(--canvas);
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-brand: var(--brand);
+  --color-brand-deep: var(--brand-deep);
+  --color-alert: var(--alert);
+  --color-caution: var(--caution);
+  --font-mono: var(--font-mono);
+  --radius-none: 0px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* The canvas is toned; the panels are glass.
+   backdrop-filter over flat white renders flat white — so the ground
+   carries a whisper of neutral tone and three soft radial washes. */
+html {
+  background: var(--canvas);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  min-height: 100%;
+  background: var(--canvas);
+  background-image:
+    radial-gradient(
+      ellipse 80% 55% at 12% 0%,
+      rgba(185, 168, 255, 0.22),
+      transparent 60%
+    ),
+    radial-gradient(
+      ellipse 65% 50% at 92% 8%,
+      rgba(255, 255, 255, 0.65),
+      transparent 62%
+    ),
+    radial-gradient(
+      ellipse 90% 60% at 50% 100%,
+      rgba(255, 255, 255, 0.5),
+      transparent 65%
+    );
+  background-attachment: fixed;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  letter-spacing: -0.005em;
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Digits align in every column. */
+.tnum,
+table,
+input,
+.stat {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
+   THE BOX · Panel — the unit the console is built from
+   ============================================================ */
+
+.panel {
+  background: var(--paper);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--rule);
+  box-shadow: var(--shadow-2), var(--glass-rim);
+  border-radius: 0;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.panel-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-3), var(--glass-rim);
+}
+
+.panel-header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--rule);
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.panel-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.sunken {
+  background: var(--sunken);
+  border: 1px solid var(--rule);
+}
+
+/* ============================================================
+   TYPE SCALE
+   ============================================================ */
+
+.t-h1 {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+.t-section {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.t-stat {
+  font-size: 24px;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+.t-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 500;
+}
+.t-muted {
+  color: var(--muted);
+}
+.t-ink2 {
+  color: var(--ink-2);
+}
+
+/* ============================================================
+   LATTICE — shared-hairline grid
+   container draws top+left, cells draw right+bottom
+   ============================================================ */
+
+.lattice {
+  display: grid;
+  border-top: 1px solid var(--rule);
+  border-left: 1px solid var(--rule);
+}
+
+.lattice > * {
+  border-right: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  padding: 10px 12px;
+  min-width: 0;
+}
+
+/* ============================================================
+   MARKS — chips & status badges
+   ============================================================ */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 7px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid var(--rule-strong);
+  background: transparent;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.chip-brand {
+  background: var(--brand);
+  border-color: transparent;
+  color: #1a1030;
+}
+
+.chip-solid {
+  background: var(--ink);
+  border-color: transparent;
+  color: #fff;
+}
+
+.chip-alert {
+  border-color: var(--alert);
+  color: var(--alert);
+}
+
+.chip-caution {
+  border-color: var(--caution);
+  color: var(--caution);
+}
+
+.dot {
+  width: 5px;
+  height: 5px;
+  flex: none;
+  background: currentColor;
+}
+
+/* ============================================================
+   CONTROLS
+   ============================================================ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  border: 1px solid var(--rule-strong);
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  border-radius: 0;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: var(--ink-2);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* The one control filled outright. */
+.btn-primary {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #24242b;
+  border-color: #24242b;
+}
+
+.btn-danger {
+  border-color: var(--alert);
+  color: var(--alert);
+  background: transparent;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: rgba(200, 16, 46, 0.07);
+  border-color: var(--alert);
+}
+
+.btn-sm {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+/* Focus ring — 2px brand-deep, offset 2px */
+:where(button, a, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--brand-deep);
+  outline-offset: 2px;
+}
+
+.input {
+  height: 32px;
+  width: 100%;
+  padding: 0 10px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid var(--rule-strong);
+  border-radius: 0;
+}
+
+.input::placeholder {
+  color: var(--muted);
+}
+
+textarea.input {
+  height: auto;
+  padding: 8px 10px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+/* ============================================================
+   METER — the signature element
+   segmented capacity strip; discrete blocks for a discrete quantity
+   ============================================================ */
+
+.meter {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+}
+
+.meter-seg {
+  flex: 1;
+  background: transparent;
+  border: 1px solid var(--rule-strong);
+}
+
+.meter-seg-on {
+  background: var(--brand);
+  border-color: transparent;
+}
+
+.meter-seg-alert {
+  background: var(--alert);
+  border-color: transparent;
+}
+
+.meter-seg-caution {
+  background: var(--caution);
+  border-color: transparent;
+}
+
+/* ============================================================
+   MISC
+   ============================================================ */
+
+::selection {
+  background: var(--brand);
+  color: #1a1030;
+}
+
+.scroll-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: var(--rule-strong);
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.pulse {
+  animation: pulse-soft 1.4s ease-in-out infinite;
+}
+
+/* ============================================================
+   WORKING STATES
+   An instrument under load reads out; it does not bounce.
+   ============================================================ */
+
+/* Skeleton — a sweep of light passing under the glass. */
+@keyframes sweep {
+  from {
+    background-position: -180% 0;
+  }
+  to {
+    background-position: 180% 0;
+  }
+}
+
+.skeleton {
+  background-color: var(--sunken);
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.85) 45%,
+    rgba(185, 168, 255, 0.35) 55%,
+    transparent 100%
+  );
+  background-size: 180% 100%;
+  background-repeat: no-repeat;
+  animation: sweep 1.7s linear infinite;
+  border: 1px solid var(--rule);
+  display: block;
+}
+
+.skeleton-line {
+  height: 9px;
+  margin-bottom: 7px;
+}
+
+.skeleton-line:last-child {
+  margin-bottom: 0;
+}
+
+/* Scanline — a hairline travelling the width of a panel that is working. */
+@keyframes scan {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+.scanning {
+  position: relative;
+  overflow: hidden;
+}
+
+.scanning::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  width: 25%;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--brand-deep),
+    transparent
+  );
+  animation: scan 1.9s ease-in-out infinite;
+}
+
+/* Cards arriving — a short rise, no overshoot. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rise {
+  animation: rise 0.28s ease-out both;
+}
+
+/* A blinking block cursor, for the line that is currently being written. */
+@keyframes blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.caret::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 11px;
+  margin-inline-start: 3px;
+  vertical-align: -1px;
+  background: var(--brand-deep);
+  animation: blink 1s step-end infinite;
+}
+
+/* Indeterminate meter — segments light in sequence while work is in flight. */
+@keyframes march {
+  0%,
+  100% {
+    background: transparent;
+    border-color: var(--rule-strong);
+  }
+  40% {
+    background: var(--brand);
+    border-color: transparent;
+  }
+}
+
+.meter-seg-working {
+  animation: march 1.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
