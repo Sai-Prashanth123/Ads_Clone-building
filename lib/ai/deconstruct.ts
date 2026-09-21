@@ -75,8 +75,10 @@ export async function deconstruct(
         onProgress?.(
           `Provider was busy — waiting ${Math.round(delayMs / 1000)}s (attempt ${attempt + 1})`,
         ),
-      onFallback: (from, to) =>
-        onProgress?.(`${from} is rate-limited — switching to ${to}`),
+      onFallback: (from, to, reason) =>
+        onProgress?.(
+          `${from} is ${reason === "quota" ? "rate-limited" : "busy"} — switching to ${to}`,
+        ),
     },
   );
 

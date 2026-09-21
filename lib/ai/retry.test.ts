@@ -88,10 +88,38 @@ describe("withModelFallback", () => {
 
     expect(await withModelFallback(models, fn, { onFallback })).toBe("ok");
     expect(fn).toHaveBeenNthCalledWith(2, { id: "model-b" });
-    expect(onFallback).toHaveBeenCalledWith("model-a", "model-b");
+    expect(onFallback).toHaveBeenCalledWith("model-a", "model-b", "quota");
   });
 
-  it("does not waste the other models on a non-quota failure", async () => {
+  it("switches models when one is overloaded, not only when rate-limited", async () => {
+    // Regression: a 503 is transient but not a quota error. Falling through
+    // only on quota meant an overloaded first model failed the whole run
+    // without switching OR retrying, since non-final models get one attempt.
+    const onFallback = vi.fn();
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new Error("503 This model is currently experiencing high demand"),
+      )
+      .mockResolvedValue("ok");
+
+    expect(await withModelFallback(models, fn, { onFallback })).toBe("ok");
+    expect(fn).toHaveBeenNthCalledWith(2, { id: "model-b" });
+    expect(onFallback).toHaveBeenCalledWith("model-a", "model-b", "busy");
+  });
+
+  it("distinguishes a quota fallback from a busy one", async () => {
+    const onFallback = vi.fn();
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("429 Quota exceeded, limit: 20"))
+      .mockResolvedValue("ok");
+
+    await withModelFallback(models, fn, { onFallback });
+    expect(onFallback).toHaveBeenCalledWith("model-a", "model-b", "quota");
+  });
+
+  it("does not waste the other models on a non-transient failure", async () => {
     const fn = vi.fn().mockRejectedValue(new Error("401 invalid api key"));
     await expect(withModelFallback(models, fn)).rejects.toThrow("invalid api key");
     expect(fn).toHaveBeenCalledTimes(1);

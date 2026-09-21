@@ -55,20 +55,23 @@ export function isQuotaLimited(err: unknown): boolean {
 }
 
 /**
- * Try each model in turn, moving on when one is out of quota.
+ * Try each model in turn, moving on when one is unavailable.
  *
- * Free-tier quota is metered per model, so a rate-limited model is not a
- * rate-limited account. Falling through the chain turns a failed run into a
- * slightly slower one. Non-quota failures still bubble up immediately — those
- * would fail identically on every model, and silently trying three is just a
- * slower way to show the same error.
+ * Fall through on ANY transient failure, not just quota. Free-tier quota is
+ * metered per model, and so is load: a 503 "overloaded" on one model says
+ * nothing about the next, and switching immediately beats waiting out a
+ * backoff on a model that is busy right now.
+ *
+ * Permanent failures still bubble up at once — a bad key or a retired model
+ * fails identically everywhere, so trying three is just a slower way to show
+ * the same error.
  */
 export async function withModelFallback<T, M extends { id: string }>(
   models: M[],
   fn: (entry: M) => Promise<T>,
   opts: {
     onRetry?: (attempt: number, delayMs: number, err: unknown) => void;
-    onFallback?: (from: string, to: string) => void;
+    onFallback?: (from: string, to: string, reason: "quota" | "busy") => void;
     baseDelayMs?: number;
   } = {},
 ): Promise<T> {
@@ -90,8 +93,12 @@ export async function withModelFallback<T, M extends { id: string }>(
       });
     } catch (err) {
       lastError = err;
-      if (isLast || !isQuotaLimited(err)) throw err;
-      opts.onFallback?.(entry.id, models[i + 1].id);
+      if (isLast || !isTransient(err)) throw err;
+      opts.onFallback?.(
+        entry.id,
+        models[i + 1].id,
+        isQuotaLimited(err) ? "quota" : "busy",
+      );
     }
   }
 

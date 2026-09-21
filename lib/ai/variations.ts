@@ -48,10 +48,10 @@ export async function generateVariations(args: {
         phase: "note" as const,
         message: `Provider was busy — waiting ${Math.round(delayMs / 1000)}s (attempt ${attempt + 1})`,
       }),
-    onFallback: (from: string, to: string) =>
+    onFallback: (from: string, to: string, reason: "quota" | "busy") =>
       onProgress?.({
         phase: "note" as const,
-        message: `${from} is rate-limited — switching to ${to}`,
+        message: `${from} is ${reason === "quota" ? "rate-limited" : "busy"} — switching to ${to}`,
       }),
   };
 
