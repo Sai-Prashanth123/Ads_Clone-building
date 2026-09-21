@@ -28,9 +28,10 @@ services:
       - key: NODE_VERSION
         value: "24"
 
-      # Next.js needs this to build and run in production mode.
-      - key: NODE_ENV
-        value: production
+      # NODE_ENV is deliberately NOT set here. Setting it to production makes
+      # `npm ci` omit devDependencies, and the Next.js build needs typescript
+      # and tailwind from there — the build fails before it starts. Render
+      # already runs the service with NODE_ENV=production at runtime.
 
       # --- Model provider (analysis + vision) ---------------------------
       - key: GOOGLE_GENERATIVE_AI_API_KEY
