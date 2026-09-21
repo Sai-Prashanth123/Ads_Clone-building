@@ -9,14 +9,21 @@ import { VariationCard } from "@/components/VariationCard";
 import { VariationSkeletonRow } from "@/components/VariationSkeleton";
 import { PlatformPicker } from "@/components/PlatformPicker";
 import { getPlatform, type PlatformId } from "@/lib/platforms";
-import { Panel, StatusBadge } from "@/components/primitives";
+import { Field, Panel, StatusBadge } from "@/components/primitives";
 import {
   createEventParser,
   RAIL_STAGES,
   STAGE_LABELS,
   type Stage,
 } from "@/lib/ai/events";
-import { hasBrand, type AdDna } from "@/lib/ai/schemas";
+import {
+  ANGLE_LABELS,
+  DEFAULT_ANGLES,
+  angles as ALL_ANGLES,
+  hasBrand,
+  type AdDna,
+  type Angle,
+} from "@/lib/ai/schemas";
 import type { ScoredVariation } from "@/lib/ai/variations";
 import type { SourcePost } from "@/lib/x/types";
 import type { ImageChoice } from "@/lib/ai/provider";
@@ -54,6 +61,7 @@ export default function Page() {
   const [showManual, setShowManual] = React.useState(false);
   const [manualText, setManualText] = React.useState("");
   const [manualImage, setManualImage] = React.useState("");
+  const [uploadError, setUploadError] = React.useState<string | null>(null);
 
   // angle -> the creative plus the prompt that actually rendered it.
   const [images, setImages] = React.useState<
@@ -80,6 +88,8 @@ export default function Page() {
   }, [running]);
 
   const [targetPlatform, setTargetPlatform] = React.useState<PlatformId>("x");
+  const [selectedAngles, setSelectedAngles] =
+    React.useState<Angle[]>(DEFAULT_ANGLES);
 
   const [setup, setSetup] = React.useState<Setup | null>(null);
 
@@ -133,6 +143,7 @@ export default function Page() {
             ? { text: manualText, imageUrl: manualImage.trim() || undefined }
             : undefined,
           targetPlatform,
+          angles: selectedAngles,
           brand:
             brandCtl.enabled && hasBrand(brandCtl.brand) ? brandCtl.brand : null,
         }),
@@ -322,6 +333,42 @@ export default function Page() {
           />
         </div>
 
+        <div className="mt-3 pt-3 border-t border-[var(--rule)]">
+          <div className="flex items-center gap-1 flex-wrap">
+            <span className="t-label mr-1">Angles:</span>
+            {ALL_ANGLES.map((angle) => {
+              const on = selectedAngles.includes(angle);
+              return (
+                <button
+                  key={angle}
+                  type="button"
+                  className={`chip cursor-pointer ${on ? "chip-brand" : ""}`}
+                  title={ANGLE_LABELS[angle].blurb}
+                  disabled={running}
+                  onClick={() =>
+                    setSelectedAngles((prev) =>
+                      // Never let the selection empty out — a run with no
+                      // angles would just fail at the schema.
+                      prev.includes(angle)
+                        ? prev.length > 1
+                          ? prev.filter((a) => a !== angle)
+                          : prev
+                        : [...prev, angle],
+                    )
+                  }
+                >
+                  {ANGLE_LABELS[angle].label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="t-label normal-case tracking-normal mt-1.5">
+            {selectedAngles.length} selected · each is one model-written
+            variation, and they are checked against each other as well as the
+            source.
+          </p>
+        </div>
+
         <div className="flex items-center gap-2 mt-3 pt-3 border-t border-[var(--rule)] flex-wrap">
           <span className="t-label">Try:</span>
           {SAMPLES.map((s) => (
@@ -391,34 +438,77 @@ export default function Page() {
         )}
       </Panel>
 
-      {/* Manual fallback — the studio is never dead on a link */}
+      {/* Manual paste — the universal input. LinkedIn, Meta and Google all
+          front their ad libraries with bot protection, so pasting is not a
+          fallback for those platforms, it is the way in. */}
       {showManual && (
-        <Panel title="Paste the post manually" bodyClassName="p-3">
+        <Panel title="Paste an ad" bodyClassName="p-3">
           <p className="t-label normal-case tracking-normal mb-2">
-            For protected, deleted or age-restricted posts. Everything downstream
-            works identically.
+            Works for any platform. LinkedIn, Meta and Google ad libraries block
+            automated reads, so paste their copy and drop in a screenshot —
+            everything downstream is identical.
           </p>
           <textarea
             className="input"
             rows={6}
-            placeholder="Paste the full post text…"
+            placeholder="Paste the full ad copy…"
             value={manualText}
             onChange={(e) => setManualText(e.target.value)}
           />
-          <input
-            className="input mt-2"
-            placeholder="Optional: direct image URL for the creative"
-            value={manualImage}
-            onChange={(e) => setManualImage(e.target.value)}
-            spellCheck={false}
-          />
+
+          <div className="grid gap-2 sm:grid-cols-2 mt-2">
+            <Field label="Creative — upload" hint="Screenshot the ad. Max 6 MB.">
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="input pt-1"
+                disabled={running}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  if (file.size > 6 * 1024 * 1024) {
+                    setUploadError("That image is over 6 MB.");
+                    return;
+                  }
+                  setUploadError(null);
+                  const reader = new FileReader();
+                  reader.onload = () => setManualImage(String(reader.result));
+                  reader.onerror = () => setUploadError("Could not read that file.");
+                  reader.readAsDataURL(file);
+                }}
+              />
+            </Field>
+            <Field label="…or paste an image URL">
+              <input
+                className="input"
+                placeholder="https://…"
+                value={manualImage.startsWith("data:") ? "" : manualImage}
+                onChange={(e) => setManualImage(e.target.value)}
+                spellCheck={false}
+              />
+            </Field>
+          </div>
+
+          {uploadError && (
+            <p className="text-[11px] mt-1" style={{ color: "var(--alert)" }}>
+              {uploadError}
+            </p>
+          )}
+
+          {manualImage.startsWith("data:") && (
+            <div className="sunken p-1 mt-2 max-w-[260px]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={manualImage} alt="Uploaded creative" className="w-full block" />
+            </div>
+          )}
+
           <button
             type="button"
             className="btn btn-primary mt-2"
             onClick={() => void run(true)}
             disabled={running || !manualText.trim()}
           >
-            Clone pasted post
+            Clone pasted ad
           </button>
         </Panel>
       )}

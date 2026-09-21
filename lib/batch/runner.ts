@@ -2,6 +2,7 @@ import { deconstruct } from "../ai/deconstruct";
 import { generateVariations } from "../ai/variations";
 import { describeError } from "../ai/errors";
 import { getPlatform } from "../platforms";
+import { parseAngles } from "../ai/schemas";
 import { fetchPost, manualPost } from "../x/fetch-post";
 import { saveSwipe } from "../db/swipes";
 import {
@@ -39,6 +40,7 @@ async function processItem(
   item: BatchItem,
   ctx: {
     targetPlatform: string;
+    angles: string[] | null;
     brand: Parameters<typeof generateVariations>[0]["brand"];
   },
 ): Promise<void> {
@@ -60,6 +62,7 @@ async function processItem(
       dna,
       brand: ctx.brand,
       platform: getPlatform(ctx.targetPlatform),
+      selectedAngles: parseAngles(ctx.angles),
     });
 
     const { id: swipeId } = await saveSwipe({
@@ -101,6 +104,7 @@ export async function runBatch(
 
     const ctx = {
       targetPlatform: progress.batch.target_platform,
+      angles: progress.batch.angles ?? null,
       brand: progress.batch.brand_profile,
     };
 

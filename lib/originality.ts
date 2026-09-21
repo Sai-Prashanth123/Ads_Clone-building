@@ -195,3 +195,70 @@ export function checkOriginality(
     reasons,
   };
 }
+
+/* ------------------------------------------------------------------ *
+ * Convergence — candidates against each other
+ * ------------------------------------------------------------------ */
+
+export type ConvergencePair = {
+  a: string;
+  b: string;
+  overlap: number;
+  longestSharedRun: number;
+  sharedPhrases: string[];
+};
+
+export type ConvergenceReport = {
+  /** True when no pair is too similar to another. */
+  pass: boolean;
+  /** Worst overlap found, 0–1. */
+  worst: number;
+  pairs: ConvergencePair[];
+};
+
+/**
+ * Two variations can each be perfectly original against the SOURCE and still be
+ * near-copies of each other. At batch scale that is the dominant failure mode:
+ * fifty clones converging on the same phrasing, every one of them passing the
+ * source check.
+ *
+ * Same maths as checkOriginality — it is a text-similarity problem either way,
+ * and a second algorithm would be a second thing to keep correct. The threshold
+ * is looser than the source one: variations of a single ad SHOULD share a
+ * subject and a structure. What they must not share is wording.
+ */
+export const CONVERGENCE_THRESHOLDS = {
+  ngramOverlap: 0.25,
+  longestSharedRun: 7,
+} as const;
+
+export function checkConvergence(
+  items: { id: string; text: string }[],
+): ConvergenceReport {
+  const pairs: ConvergencePair[] = [];
+
+  for (let i = 0; i < items.length; i++) {
+    for (let j = i + 1; j < items.length; j++) {
+      const report = checkOriginality(items[i].text, items[j].text);
+      const tooClose =
+        report.ngramOverlap > CONVERGENCE_THRESHOLDS.ngramOverlap ||
+        report.longestSharedRun >= CONVERGENCE_THRESHOLDS.longestSharedRun;
+
+      if (tooClose) {
+        pairs.push({
+          a: items[i].id,
+          b: items[j].id,
+          overlap: report.ngramOverlap,
+          longestSharedRun: report.longestSharedRun,
+          sharedPhrases: report.sharedPhrases.slice(0, 4),
+        });
+      }
+    }
+  }
+
+  return {
+    pass: pairs.length === 0,
+    worst: pairs.reduce((max, p) => Math.max(max, p.overlap), 0),
+    pairs: pairs.sort((a, b) => b.overlap - a.overlap),
+  };
+}

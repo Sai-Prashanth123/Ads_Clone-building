@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { checkOriginality, normalize, THRESHOLDS } from "./originality";
+import {
+  checkConvergence,
+  checkOriginality,
+  normalize,
+  THRESHOLDS,
+} from "./originality";
 
 const ORIGINAL = `Stop wasting 4 hours a day on manual data entry.
 
@@ -97,5 +102,58 @@ Reclaim the afternoon — the first fortnight is on us, no card needed.`;
   it("handles empty input without throwing", () => {
     expect(() => checkOriginality("", ORIGINAL)).not.toThrow();
     expect(checkOriginality("", ORIGINAL).score).toBeGreaterThan(90);
+  });
+});
+
+describe("checkConvergence", () => {
+  const A = `Still losing half your workday to tedious typing?
+Let automation handle rows and columns the moment they land.
+First fortnight costs nothing.`;
+
+  // Same idea, barely reworded — each could pass against the SOURCE while
+  // being a near-copy of the other. That is the batch-scale failure mode.
+  const NEAR_A = `Still losing half of your workday to tedious typing?
+Let automation handle the rows and columns the moment they land.
+The first fortnight costs nothing.`;
+
+  const B = `Your finance team rebuilds the same report every Monday.
+One connection and it assembles itself overnight.
+Two weeks on us, no card.`;
+
+  it("passes genuinely different variations", () => {
+    const report = checkConvergence([
+      { id: "a", text: A },
+      { id: "b", text: B },
+    ]);
+    expect(report.pass).toBe(true);
+    expect(report.pairs).toHaveLength(0);
+  });
+
+  it("flags two variations that are near-copies of each other", () => {
+    const report = checkConvergence([
+      { id: "a", text: A },
+      { id: "near", text: NEAR_A },
+    ]);
+    expect(report.pass).toBe(false);
+    expect(report.pairs[0].a).toBe("a");
+    expect(report.pairs[0].b).toBe("near");
+    expect(report.pairs[0].sharedPhrases.length).toBeGreaterThan(0);
+  });
+
+  it("names every colliding pair, not just the first", () => {
+    const report = checkConvergence([
+      { id: "a", text: A },
+      { id: "near", text: NEAR_A },
+      { id: "b", text: B },
+    ]);
+    expect(report.pass).toBe(false);
+    // b collides with neither, so exactly one pair should surface.
+    expect(report.pairs).toHaveLength(1);
+    expect(report.worst).toBeGreaterThan(0);
+  });
+
+  it("handles a single item and an empty set without throwing", () => {
+    expect(checkConvergence([{ id: "a", text: A }]).pass).toBe(true);
+    expect(checkConvergence([]).pass).toBe(true);
   });
 });

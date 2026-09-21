@@ -121,8 +121,24 @@ export type AdDna = z.infer<typeof adDnaSchema>;
  * Variations
  * ------------------------------------------------------------------ */
 
-export const angles = ["direct-swap", "aggressive", "minimalist"] as const;
+export const angles = [
+  "direct-swap",
+  "aggressive",
+  "minimalist",
+  "curiosity-gap",
+  "social-proof",
+  "authority",
+  "before-after",
+  "story",
+] as const;
 export type Angle = (typeof angles)[number];
+
+/** What a run uses unless the operator picks otherwise. */
+export const DEFAULT_ANGLES: Angle[] = [
+  "direct-swap",
+  "aggressive",
+  "minimalist",
+];
 
 export const ANGLE_LABELS: Record<Angle, { label: string; blurb: string }> = {
   "direct-swap": {
@@ -137,7 +153,36 @@ export const ANGLE_LABELS: Record<Angle, { label: string; blurb: string }> = {
     label: "Minimalist",
     blurb: "Emoji stripped, one-line hook, the visual carries the weight.",
   },
+  "curiosity-gap": {
+    label: "Curiosity gap",
+    blurb: "Withholds the payoff. Names the result, hides the mechanism.",
+  },
+  "social-proof": {
+    label: "Social proof",
+    blurb: "Leads with who else already did this, not with the claim.",
+  },
+  authority: {
+    label: "Authority",
+    blurb: "Borrows credibility — data, credentials, a named source.",
+  },
+  "before-after": {
+    label: "Before / after",
+    blurb: "Two states side by side. The gap between them is the argument.",
+  },
+  story: {
+    label: "Story",
+    blurb: "One specific person, one specific moment. Narrative, not pitch.",
+  },
 };
+
+export function parseAngles(input?: string[] | null): Angle[] {
+  if (!input?.length) return DEFAULT_ANGLES;
+  const valid = input.filter((a): a is Angle =>
+    (angles as readonly string[]).includes(a),
+  );
+  // An unrecognised selection should not silently produce an empty run.
+  return valid.length ? [...new Set(valid)] : DEFAULT_ANGLES;
+}
 
 export const variationSchema = z.object({
   angle: z.enum(angles),

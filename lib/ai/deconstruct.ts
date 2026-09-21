@@ -15,6 +15,20 @@ const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 async function loadImage(
   url: string,
 ): Promise<{ data: Uint8Array; mediaType: string } | null> {
+  // An uploaded creative arrives as a data: URL. fetch() would reject it, and
+  // the bytes are already here, so decode rather than request.
+  if (url.startsWith("data:")) {
+    const match = /^data:([^;]+);base64,([\s\S]+)$/.exec(url);
+    if (!match) return null;
+    try {
+      const data = Uint8Array.from(Buffer.from(match[2], "base64"));
+      if (data.byteLength === 0 || data.byteLength > MAX_IMAGE_BYTES) return null;
+      return { data, mediaType: match[1] };
+    } catch {
+      return null;
+    }
+  }
+
   try {
     const res = await fetch(url, {
       headers: { "User-Agent": "Mozilla/5.0 (compatible; AdCloneStudio/1.0)" },

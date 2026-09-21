@@ -213,6 +213,28 @@ export function VariationCard({
             ))}
           </ul>
         )}
+
+        {/* Passing against the source while being a near-copy of a sibling is
+            the failure that wastes a whole batch, so it gets its own line. */}
+        {variation.convergence && (
+          <div className="mt-2">
+            {variation.convergence.pairs
+              .filter((p) => p.a === variation.angle || p.b === variation.angle)
+              .map((p) => {
+                const other = p.a === variation.angle ? p.b : p.a;
+                return (
+                  <p
+                    key={`${p.a}-${p.b}`}
+                    className="text-[11px] leading-[1.45]"
+                    style={{ color: "var(--caution)" }}
+                  >
+                    Too close to the {other.replace(/-/g, " ")} variation
+                    {p.sharedPhrases[0] && ` — both use “${p.sharedPhrases[0]}”`}.
+                  </p>
+                );
+              })}
+          </div>
+        )}
       </div>
 
       {/* Beat mapping — the receipt that the framework survived */}

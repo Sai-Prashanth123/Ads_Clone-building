@@ -1,6 +1,13 @@
 import type { SourcePost } from "../x/types";
 import type { PlatformSpec } from "../platforms";
-import { ANGLE_LABELS, type AdDna, type BrandProfile, hasBrand } from "./schemas";
+import {
+  ANGLE_LABELS,
+  DEFAULT_ANGLES,
+  type AdDna,
+  type Angle,
+  type BrandProfile,
+  hasBrand,
+} from "./schemas";
 import { engagementRate } from "../x/types";
 
 export const DECONSTRUCT_SYSTEM = `You are a direct-response strategist who reverse-engineers high-performing social ads for a living.
@@ -85,7 +92,7 @@ TEXT INSIDE THE IMAGE — image models garble long passages into nonsense letter
 
 Never describe a generic desk, laptop, dashboard, notebook or "modern workspace" unless the original's mechanism genuinely was that. Those read as stock photography and kill the ad.
 
-Write the three angles as specified. Same source DNA, genuinely different executions — not one post with three sets of synonyms.`;
+Write exactly the angles you are asked for, one variation each. Same source DNA, genuinely different executions — not one post with several sets of synonyms. Two variations that differ only in wording are a failure: an automated check compares them against EACH OTHER as well as against the source.`;
 
 export function variationsPrompt(args: {
   post: SourcePost;
@@ -93,13 +100,18 @@ export function variationsPrompt(args: {
   brand?: BrandProfile | null;
   /** The target platform's field structure and limits. */
   platform?: PlatformSpec;
+  /** Which angles to write. */
+  selectedAngles?: Angle[];
   /** Phrases a previous attempt lifted; must not reappear. */
   forbiddenPhrases?: string[];
 }): string {
-  const { post, dna, brand, platform, forbiddenPhrases } = args;
+  const { post, dna, brand, platform, selectedAngles, forbiddenPhrases } = args;
 
-  const angleSpec = Object.entries(ANGLE_LABELS)
-    .map(([id, v]) => `- ${id} — ${v.label}: ${v.blurb}`)
+  // Only the angles this run asked for. Listing all eight when three were
+  // requested invites the model to blend them.
+  const chosen = selectedAngles?.length ? selectedAngles : DEFAULT_ANGLES;
+  const angleSpec = chosen
+    .map((id) => `- ${id} — ${ANGLE_LABELS[id].label}: ${ANGLE_LABELS[id].blurb}`)
     .join("\n");
 
   const brandBlock = hasBrand(brand)
@@ -175,7 +187,7 @@ export function variationsPrompt(args: {
     brandBlock,
     forbiddenBlock,
     "",
-    "PRODUCE THESE THREE ANGLES:",
+    `PRODUCE EXACTLY THESE ${chosen.length} ANGLES, one variation each:`,
     angleSpec,
   ].join("\n");
 }
