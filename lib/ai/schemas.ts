@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { PlatformSpec } from "../platforms";
+import { generationMax, type PlatformSpec } from "../platforms";
 
 /* ------------------------------------------------------------------ *
  * Ad DNA — what the deconstruction pass extracts from the source post.
@@ -277,19 +277,23 @@ export function buildVariationSchema(spec: PlatformSpec) {
   const copy: Record<string, z.ZodTypeAny> = {};
 
   for (const field of spec.fields) {
+    // Constrain generation near the truncation point rather than the
+    // platform's hard limit — see generationMax for why the gap matters.
+    const cap = generationMax(field);
+
     const limit = field.recommended
-      ? `Hard limit ${field.max} characters; aim under ${field.recommended}, where it truncates.`
-      : `Hard limit ${field.max} characters.`;
+      ? `Write at most ${cap} characters. It truncates in feed at ${field.recommended}, so the decisive words must come first.`
+      : `Hard limit ${cap} characters.`;
 
     const describe = `${field.label}. ${limit} ${field.hint}`;
 
     copy[field.key] = field.repeat
       ? z
-          .array(z.string().max(field.max))
+          .array(z.string().max(cap))
           .min(field.repeat.min)
           .max(field.repeat.max)
           .describe(describe)
-      : z.string().max(field.max).describe(describe);
+      : z.string().max(cap).describe(describe);
   }
 
   return z.object({

@@ -177,6 +177,24 @@ export const PLATFORMS: Record<PlatformId, PlatformSpec> = {
 
 export const PLATFORM_IDS = Object.keys(PLATFORMS) as PlatformId[];
 
+/**
+ * The ceiling to give the MODEL, which is not the platform's hard limit.
+ *
+ * A zod `.max()` is a structural constraint a model respects; a `recommended`
+ * value in prose is a suggestion it weighs against everything else it was
+ * told. Measured across a real run: every field whose max/recommended ratio
+ * was under ~10x landed in range, while Meta's primary text at 24x (3000 vs
+ * 125) came back at 891–2065 characters. The prose was losing to the schema.
+ *
+ * So generation is capped near the truncation point, with enough slack for a
+ * sentence that runs slightly over. Validation still reports against the
+ * platform's real numbers — the schema steers, the report tells the truth.
+ */
+export function generationMax(field: FieldSpec): number {
+  if (!field.recommended) return field.max;
+  return Math.min(field.max, Math.round(field.recommended * 1.4));
+}
+
 export function getPlatform(id: string | undefined | null): PlatformSpec {
   return PLATFORMS[(id as PlatformId) ?? "x"] ?? PLATFORMS.x;
 }
