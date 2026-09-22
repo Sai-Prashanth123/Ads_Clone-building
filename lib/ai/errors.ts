@@ -7,6 +7,16 @@ import { detectProvider, PROVIDERS } from "./provider";
  * raw text is either a stack trace or a wall of JSON. Messages name the
  * provider that actually failed — an error that blames the wrong vendor sends
  * you to the wrong dashboard, which is worse than no message at all.
+ *
+ * Two rules about writing the patterns, both learned the hard way:
+ *
+ * 1. ORDER MATTERS. Specific conditions come first. A quota error mentioning
+ *    a status code must not be caught by a broader rule above it.
+ *
+ * 2. BARE STATUS CODES NEED WORD BOUNDARIES. `403` without \b matched inside
+ *    the retry delay "40.319842403s" of a 429 quota message, so a rate limit
+ *    was reported as an auth failure and sent the user to check a key that was
+ *    working perfectly. Digits appear everywhere in these payloads.
  */
 type Rule = {
   match: RegExp;
@@ -16,34 +26,40 @@ type Rule = {
 };
 
 const RULES: Rule[] = [
-  {
-    match: /api key|unauthor|credential|invalid token|permission denied|401|403/i,
-    message: (label) => {
-      const id = detectProvider();
-      const envVar = id ? PROVIDERS[id].envVar : "your provider key";
-      return `${label} rejected the request. Check ${envVar} in .env.local.`;
-    },
-  },
   // Verbatim: this one carries the link that resolves it.
   { match: /credit card|payment method/i, message: (_l, raw) => raw.slice(0, 400) },
   {
     // Google reports an unfunded model as `limit: 0` rather than as billing.
-    match: /limit:\s*0/i,
+    match: /limit:\s*0\b/i,
     message: (label) =>
       `${label} gives this model no free-tier quota (limit: 0), so it cannot run until billing is enabled on the project. Switching model or provider also works.`,
   },
   {
-    match: /quota|billing|insufficient|spend limit|402/i,
-    message: (label) =>
-      `${label} reports no available quota for this request. Add credit, or wait for the quota window to reset.`,
+    match: /quota|resource_exhausted|\b429\b|too many requests|rate.?limit/i,
+    message: (label, raw) => {
+      const wait = raw.match(/retry in\s+([\d.]+)\s*s/i)?.[1];
+      const seconds = wait ? Math.ceil(Number(wait)) : null;
+      return seconds
+        ? `${label} is rate-limited. Quota refills in about ${seconds}s — this is the free tier's per-minute cap, not a broken key.`
+        : `${label} is rate-limited or out of quota. Free-tier windows refill within a minute.`;
+    },
   },
   {
-    match: /rate.?limit|too many requests|resource_exhausted|429/i,
+    match: /billing|insufficient|spend limit|\b402\b/i,
     message: (label) =>
-      `${label} rate-limited the request. Wait a moment and run it again.`,
+      `${label} reports no available credit for this request. Add credit and retry.`,
   },
   {
-    match: /high demand|overloaded|unavailable|503/i,
+    // Auth goes AFTER quota: a 429 body routinely contains stray digits.
+    match: /api key|unauthor|credential|invalid token|permission denied|\b401\b|\b403\b/i,
+    message: (label) => {
+      const id = detectProvider();
+      const envVar = id ? PROVIDERS[id].envVar : "your provider key";
+      return `${label} rejected the request. Check ${envVar}.`;
+    },
+  },
+  {
+    match: /high demand|overloaded|unavailable|\b503\b/i,
     message: (label) =>
       `${label} is overloaded right now. Retry in a moment — this one usually clears quickly.`,
   },
@@ -53,7 +69,7 @@ const RULES: Rule[] = [
       `${label} refused this prompt on content-policy grounds. Edit the prompt and retry.`,
   },
   {
-    match: /not found|does not exist|404/i,
+    match: /not found|does not exist|\b404\b/i,
     message: (label) =>
       `${label} does not serve the configured model. It may have been renamed or retired — check lib/ai/provider.ts.`,
   },
