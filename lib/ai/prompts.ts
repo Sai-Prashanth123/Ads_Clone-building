@@ -168,7 +168,9 @@ export function variationsPrompt(args: {
           ? `The call to action must be exactly one of: ${platform.ctaOptions.join(", ")}.`
           : "",
         "",
-        "Count characters carefully. A field over its hard limit is rejected by the platform and the whole variation is wasted. Where a field truncates, put the decisive words before the cut.",
+        "Count characters carefully. A field over its hard limit is rejected by the platform and the whole variation is wasted.",
+        "",
+        "THE TRUNCATION POINT BEATS LENGTH FIDELITY. The contract asks you to match the original's length — that rule is suspended wherever this platform truncates sooner. A 2,000-character source becoming a 150-character intro is correct, not a failure: everything past the cut is invisible in the feed, so writing it changes nothing except pushing the hook out of view. Fit the field, and if the source's structure will not compress, keep its FIRST beat and drop the rest rather than spilling past the cut.",
         "--- END FORMAT ---",
       ]
         .filter(Boolean)
