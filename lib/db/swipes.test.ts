@@ -151,3 +151,44 @@ describe("saving a run", () => {
     expect((swipes!.rows as Record<string, unknown>).target_format).toBe("thread");
   });
 });
+
+describe("columns the caller never supplies", () => {
+  /* PostgREST sends an explicit null for an undefined property, and an explicit
+   * null overrides a column default — so a NOT NULL column with a perfectly
+   * good default still fails. `regenerated`, `originality` and `beat_mapping`
+   * each broke this way in turn, one deploy apart, which is why the row is
+   * cleaned as a whole rather than one column at a time. */
+  it("omits them entirely so the column default applies", async () => {
+    await saveSwipe({ post, dna, variations: [variation()] });
+
+    const row = (inserted.find((i) => i.table === "clones")!
+      .rows as Record<string, unknown>[])[0];
+
+    for (const column of ["originality", "beat_mapping", "fidelity", "spec_report"]) {
+      expect(
+        Object.prototype.hasOwnProperty.call(row, column) &&
+          row[column] === undefined,
+        `${column} would be sent as an explicit null`,
+      ).toBe(false);
+    }
+  });
+
+  it("still writes the values the caller did supply", async () => {
+    await saveSwipe({
+      post,
+      dna,
+      variations: [
+        variation({
+          originality: { score: 91, pass: true },
+          beatMapping: [{ role: "hook", line: "a line" }],
+        }),
+      ],
+    });
+
+    const row = (inserted.find((i) => i.table === "clones")!
+      .rows as Record<string, unknown>[])[0];
+
+    expect(row.originality).toEqual({ score: 91, pass: true });
+    expect(row.beat_mapping).toEqual([{ role: "hook", line: "a line" }]);
+  });
+});

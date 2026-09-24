@@ -105,9 +105,7 @@ async function adoptStaged(
   const ext = from.split(".").pop() ?? "png";
   const to = `${swipeId}/${angle}-${Date.now()}.${ext}`;
 
-  const { error } = await getDb()
-    .storage.from(CREATIVES_BUCKET)
-    .move(from, to);
+  const { error } = await getDb().storage.from(CREATIVES_BUCKET).move(from, to);
 
   if (error) return url;
 
@@ -138,6 +136,24 @@ async function uploadCreative(
   return data.publicUrl ?? null;
 }
 
+/**
+ * Drop keys whose value is undefined, so the column's own default applies.
+ *
+ * PostgREST sends an explicit null for an undefined property, and an explicit
+ * null OVERRIDES a column default — so a NOT NULL column with a perfectly good
+ * default still fails. Every optional field in the MCP tool's schema is a
+ * candidate: `regenerated`, `originality` and `beat_mapping` each broke this
+ * way in turn, one deploy apart. Defaulting them one at a time only finds the
+ * next one in production, so the row is cleaned as a whole.
+ */
+function withoutUndefined<T extends Record<string, unknown>>(
+  row: T,
+): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(row).filter(([, v]) => v !== undefined),
+  ) as Partial<T>;
+}
+
 export async function saveSwipe(args: {
   post: SourcePost;
   dna: AdDna;
@@ -158,19 +174,21 @@ export async function saveSwipe(args: {
 
   const { data: swipe, error: swipeError } = await db
     .from("swipes")
-    .insert({
-      source_url: args.post.url || null,
-      tweet_id: args.post.id,
-      author_handle: args.post.author.handle,
-      author_name: args.post.author.name,
-      original_text: args.post.text,
-      original_media_url: args.post.media[0]?.url ?? null,
-      engagement: args.post.engagement,
-      dna: args.dna,
-      fetched_via: args.post.source,
-      platform: args.platform ?? "x",
-      target_format: args.format ?? null,
-    })
+    .insert(
+      withoutUndefined({
+        source_url: args.post.url || null,
+        tweet_id: args.post.id,
+        author_handle: args.post.author.handle,
+        author_name: args.post.author.name,
+        original_text: args.post.text,
+        original_media_url: args.post.media[0]?.url ?? null,
+        engagement: args.post.engagement,
+        dna: args.dna,
+        fetched_via: args.post.source,
+        platform: args.platform ?? "x",
+        target_format: args.format ?? null,
+      }),
+    )
     .select("id")
     .single();
 
@@ -190,7 +208,7 @@ export async function saveSwipe(args: {
           ? await adoptStaged(swipe.id, v.angle, generated.url)
           : null;
 
-      return {
+      return withoutUndefined({
         swipe_id: swipe.id,
         angle: v.angle,
         body: v.text,
@@ -207,7 +225,7 @@ export async function saveSwipe(args: {
         target_format: args.format ?? null,
         regenerated: v.regenerated ?? false,
         image_url: imageUrl,
-      };
+      });
     }),
   );
 
