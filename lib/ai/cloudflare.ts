@@ -17,23 +17,66 @@ const BASE = "https://api.cloudflare.com/client/v4/accounts";
 
 const FLUX = "@cf/black-forest-labs/flux-1-schnell";
 const SDXL = "@cf/stabilityai/stable-diffusion-xl-base-1.0";
+const PHOENIX = "@cf/leonardo/phoenix-1.0";
+const LUCID = "@cf/leonardo/lucid-origin";
+
+/**
+ * Models that can put a legible word in the picture.
+ *
+ * Measured, not assumed. Given the same prompt asking for one short headline,
+ * flux-1-schnell wrote "small brandes win" twice over at four steps and was
+ * still misspelling at eight; Phoenix and Lucid Origin both rendered it
+ * correctly, first try. For an ad creative that imitates a screenshot, that
+ * difference is the whole job — a garbled headline destroys the one thing the
+ * format was chosen for.
+ *
+ * They are Leonardo partner models and bill in dollars rather than against the
+ * free neuron allowance, which is why the free model stays the default: a tool
+ * should not start spending money because it produced a better picture.
+ */
+const TEXT_CAPABLE = new Set<string>([PHOENIX, LUCID]);
+
+/** Whether this model can render a word you ask for and spell it correctly. */
+export function rendersTextLegibly(model: string): boolean {
+  return TEXT_CAPABLE.has(model);
+}
 
 export const CLOUDFLARE_IMAGE_MODELS = [
   {
     id: FLUX,
     label: "flux-1-schnell",
-    note: "Apache-2.0 FLUX, free tier. Strongest composition and lighting. Ignores exact dimensions — it composes for the aspect you ask for but always returns a 1024x1024 file.",
-    approxCost: "free · ~190/day",
+    note: "Free. Strongest composition and lighting, and it CANNOT spell — it garbles any word you ask it to render. Use it when the creative carries no text.",
+    approxCost: "free · ~120/day",
     supportsImageInput: false,
     honoursDimensions: false,
+    rendersText: false,
+  },
+  {
+    id: PHOENIX,
+    label: "phoenix-1.0",
+    note: "Renders a short headline legibly and correctly, and honours exact dimensions. The one to pick when the creative imitates a screenshot, a post or anything with a word in it.",
+    approxCost: "~$0.02 per image",
+    supportsImageInput: false,
+    honoursDimensions: true,
+    rendersText: true,
+  },
+  {
+    id: LUCID,
+    label: "lucid-origin",
+    note: "Also spells correctly, and renders body copy as convincing illegible texture rather than attempting it — which is what a real screenshot looks like at a glance.",
+    approxCost: "~$0.02 per image",
+    supportsImageInput: false,
+    honoursDimensions: true,
+    rendersText: true,
   },
   {
     id: SDXL,
     label: "sdxl",
-    note: "Honours exact width and height and accepts a negative prompt. Reach for it when the frame SHAPE matters — a story or a carousel card that has to be the right size on disk.",
+    note: "Free, honours exact width and height, and takes a negative prompt. Weaker than the others at everything else, including text.",
     approxCost: "free · ~190/day",
     supportsImageInput: false,
     honoursDimensions: true,
+    rendersText: false,
   },
 ] as const;
 
@@ -131,6 +174,7 @@ export async function generateCloudflareImage(args: {
   aspectRatio: string;
 }): Promise<{ dataUrl: string; mediaType: string; model: string }> {
   const isSdxl = args.model.includes("stable-diffusion");
+  const isLeonardo = args.model.includes("/leonardo/");
 
   const payload: Record<string, unknown> = isSdxl
     ? {
@@ -139,23 +183,40 @@ export async function generateCloudflareImage(args: {
         ...aspectDimensions(args.aspectRatio as "16:9"),
         num_steps: 20,
       }
-    : {
-        // flux: aspect is described, and negatives are folded into the prompt
-        // because the model accepts neither parameter.
-        prompt: [
-          args.prompt,
-          aspectPhrase(args.aspectRatio),
-          args.negativePrompt ? `Avoid: ${args.negativePrompt}` : "",
-        ]
-          .filter(Boolean)
-          .join(" "),
-        steps: 4,
-      };
+    : isLeonardo
+      ? {
+          prompt: [
+            args.prompt,
+            args.negativePrompt ? `Avoid: ${args.negativePrompt}` : "",
+          ]
+            .filter(Boolean)
+            .join(" "),
+          ...aspectDimensions(args.aspectRatio as "16:9"),
+        }
+      : {
+          // flux: aspect is described, and negatives are folded into the prompt
+          // because the model accepts neither parameter.
+          prompt: [
+            args.prompt,
+            aspectPhrase(args.aspectRatio),
+            args.negativePrompt ? `Avoid: ${args.negativePrompt}` : "",
+          ]
+            .filter(Boolean)
+            .join(" "),
+          /* Eight, not four.
+           *
+           * Four is the floor and it showed: soft edges, doubled headlines and
+           * worse spelling than the same model manages with room to settle.
+           * Eight roughly halves the daily allowance and is still ~120 images,
+           * which is far more than a day's work. */
+          steps: 8,
+        };
 
   const res = await callWorkersAI(args.model, payload);
   const contentType = res.headers.get("content-type") ?? "";
 
-  // SDXL answers with raw PNG bytes; flux answers with base64 in JSON.
+  // SDXL and Phoenix answer with raw bytes; flux and Lucid answer with
+  // base64 in JSON. The content type decides, not the model name.
   if (!contentType.includes("application/json")) {
     if (!res.ok) {
       failed(res.status, (await res.text().catch(() => "")).slice(0, 160));

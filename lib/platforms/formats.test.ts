@@ -10,7 +10,7 @@ import {
 } from "./index";
 import { buildVariationSchema } from "../ai/schemas";
 import { validateAgainstSpec } from "./validate";
-import { checkFidelity } from "../fidelity";
+import { checkFidelity, fingerprint } from "../fidelity";
 import { checkOriginality } from "../originality";
 
 /**
@@ -289,5 +289,34 @@ describe("a carousel can actually pass fidelity now", () => {
     expect(report.drifted.join(" ")).toContain("not a fault in the draft");
     // The CTA card is the format's convention, not a change of move.
     expect(report.drifted.join(" ")).not.toContain("ends on");
+  });
+});
+
+describe("an item's own line breaks", () => {
+  /* Posts on X are routinely written as several short lines with no terminal
+   * punctuation. Collapsing a post onto one line counted it as a single unit,
+   * so two three-word lines read as one six-word sentence and dragged the
+   * rhythm dimension with them. */
+  const thread = () =>
+    fieldsToText(getFormat("x", "thread"), {
+      hookPost: "38 ways a small agency wins:",
+      posts: [
+        { text: "Price the outcome\nNot the hour" },
+        { text: "Answer in an hour\nTheir form takes a week" },
+      ],
+    });
+
+  it("keeps them", () => {
+    expect(thread()).toContain("- Price the outcome\nNot the hour");
+  });
+
+  it("still counts one bullet per post", () => {
+    expect(fingerprint(thread()).bulletCount).toBe(2);
+  });
+
+  it("measures the lines separately", () => {
+    // Four short lines, not two long ones.
+    const f = fingerprint(thread());
+    expect(f.meanSentenceWords).toBeLessThan(6);
   });
 });

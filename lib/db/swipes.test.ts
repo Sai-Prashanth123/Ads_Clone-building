@@ -255,3 +255,46 @@ describe("deleting a run", () => {
     expect(String(row.image_url)).toContain("pending/abc.png");
   });
 });
+
+describe("a creative arriving in the wrong field", () => {
+  /* A host on a cached tool list only knows about `dataUrl`, so it puts the
+   * hosted URL there. Decoding that as base64 failed silently and the picture
+   * was lost — the worst available answer, because the save reported success. */
+  it("is still kept when a URL comes in as dataUrl", async () => {
+    await saveSwipe({
+      post,
+      dna,
+      variations: [variation()],
+      images: {
+        "direct-swap": {
+          dataUrl: "https://store.test/creatives/pending/abc.png",
+        },
+      },
+    });
+
+    const row = (inserted.find((i) => i.table === "clones")!
+      .rows as Record<string, unknown>[])[0];
+
+    expect(row.image_url).toBeTruthy();
+    expect(String(row.image_url)).toContain("swipe-1/");
+  });
+
+  it("still decodes real base64 when that is what arrives", async () => {
+    await saveSwipe({
+      post,
+      dna,
+      variations: [variation()],
+      images: {
+        "direct-swap": {
+          dataUrl:
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        },
+      },
+    });
+
+    const row = (inserted.find((i) => i.table === "clones")!
+      .rows as Record<string, unknown>[])[0];
+
+    expect(String(row.image_url)).toContain("swipe-1/direct-swap-");
+  });
+});

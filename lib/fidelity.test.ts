@@ -417,3 +417,27 @@ describe("a closing move buried in a long block", () => {
     ).toBe("none");
   });
 });
+
+describe("a sign-off is not a call to action", () => {
+  /* "let's start." read as a CTA while "let's go." read as a sign-off, because
+   * `start` is in the verb list and `go` is not. That is a distinction about
+   * the verb rather than about the copy, and it cost a writer a rewrite of a
+   * line that was already right. */
+  it("reads let's-anything as the writer's own flourish", () => {
+    for (const closer of ["let's start.", "let's go.", "let's roll.", "lets build."]) {
+      expect(fingerprint(closer).closing, closer).toBe("sign-off");
+    }
+  });
+
+  it("still reads an instruction to the reader as a CTA", () => {
+    expect(fingerprint("Grab it here.").closing).toBe("cta");
+    expect(fingerprint("Start your free trial today.").closing).toBe("cta");
+  });
+
+  it("does not swallow a long sentence that merely opens with let's", () => {
+    expect(
+      fingerprint("Let's be honest about what this costs before you commit to it.")
+        .closing,
+    ).toBe("none");
+  });
+});

@@ -28,6 +28,8 @@ export function registerCreativeTools(server: McpServer): void {
         "",
         "Text inside images renders badly past a few words. Specify at most one short line in quotes and describe the rest as non-legible texture.",
         "",
+        "AND NOT EVERY MODEL CAN SPELL. The free ones garble any word you ask them to render — the same prompt came back as \"small brandes win\", twice over — which ruins a creative that imitates a screenshot or a post, because the format IS the mechanism and a misspelt headline gives it away. If your prompt contains a line of text, pick a model whose `rendersText` is true. Those bill per image rather than against the free allowance, so it is a real choice; the result says plainly when you have asked the wrong model for text.",
+        "",
         "NOT every model returns the frame you ask for. The default composes for the aspect but always writes a square file; pick one whose `honoursDimensions` is true when the file's shape matters, such as a 9:16 story. The result says which you got.",
         "",
         "The result carries an `imageUrl`. Pass that to save_swipe — it is how a creative gets attached to a saved run, and it is short enough to carry through a conversation. The raw bytes come back as an image block for you to LOOK at, not to copy.",
@@ -66,6 +68,15 @@ export function registerCreativeTools(server: McpServer): void {
         const squareInstead =
           choice?.honoursDimensions === false && aspect !== "1:1";
 
+        /* Did the prompt ask for a word the model cannot spell?
+         *
+         * The free models garble any text they are asked to render — measured:
+         * "small brands win" came back as "small brandes win", twice over. An
+         * ad creative imitating a screenshot lives on that one line, so a
+         * silently garbled headline wastes the render and the idea with it. */
+        const wantsText = /"[^"]{2,60}"|'[^']{2,60}'/.test(args.prompt);
+        const cannotSpell = wantsText && choice?.rendersText === false;
+
         /* Park the creative somewhere the caller can point at.
          *
          * Handing back base64 in structuredContent showed the model a picture
@@ -80,9 +91,13 @@ export function registerCreativeTools(server: McpServer): void {
           ? `Rendered with ${image.model}, composed for ${aspect} but written as a square 1024x1024 file — this model cannot set dimensions. Re-render with a model whose honoursDimensions is true if the file has to be ${aspect}.`
           : `Rendered with ${image.model} at ${aspect}.`;
 
+        const spelling = cannotSpell
+          ? ` Your prompt asks for text in the image and ${choice?.label} cannot spell — expect it garbled. Re-render with a model whose rendersText is true if the words matter.`
+          : "";
+
         const note = staged
-          ? `${line} Pass imageUrl "${staged.url}" to save_swipe to keep it.`
-          : `${line} No swipe file is configured, so it is not stored anywhere.`;
+          ? `${line}${spelling} Pass imageUrl "${staged.url}" to save_swipe to keep it.`
+          : `${line}${spelling} No swipe file is configured, so it is not stored anywhere.`;
 
         return {
           content: [
@@ -97,6 +112,7 @@ export function registerCreativeTools(server: McpServer): void {
             requestedAspect: aspect,
             frameMatchesAspect: !squareInstead,
             imageUrl: staged?.url ?? null,
+            textWillBeGarbled: cannotSpell,
             dataUrl: image.dataUrl,
           },
         };

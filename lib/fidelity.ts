@@ -188,6 +188,14 @@ function detectClosing(text: string): ClosingMove {
   )
     return "link";
 
+  /* "let's …" is the writer's own flourish, not an instruction to the reader —
+   * first person plural, and a sign-off however it ends. Without this
+   * "let's start." was a call to action and "let's go." a sign-off, which is a
+   * distinction about the verb rather than about the copy, and it cost a writer
+   * a rewrite of a line that was already right. */
+  if (/^(let'?s|lets)\b/i.test(last) && last.split(/\s+/).length <= 4)
+    return "sign-off";
+
   if (
     /\b(try|get|start|join|sign up|download|book|claim|learn more|shop|subscribe|register|apply|grab|see it|comment|reply)\b/i.test(
       last,

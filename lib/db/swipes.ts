@@ -202,11 +202,20 @@ export async function saveSwipe(args: {
     args.variations.map(async (v) => {
       const generated = args.images?.[v.angle];
 
-      const imageUrl = generated?.dataUrl
-        ? await uploadCreative(swipe.id, v.angle, generated.dataUrl)
-        : generated?.url
-          ? await adoptStaged(swipe.id, v.angle, generated.url)
-          : null;
+      /* Take the creative however it arrives.
+       *
+       * A host working from a cached tool list only knows about `dataUrl`, so
+       * it puts the hosted URL there — and decoding that as base64 failed
+       * silently, losing the picture. Which field it came in matters far less
+       * than not dropping it. */
+      const raw = generated?.dataUrl ?? generated?.url;
+      const isHostedUrl = Boolean(raw && /^https?:\/\//i.test(raw));
+
+      const imageUrl = !raw
+        ? null
+        : isHostedUrl
+          ? await adoptStaged(swipe.id, v.angle, raw)
+          : await uploadCreative(swipe.id, v.angle, raw);
 
       return withoutUndefined({
         swipe_id: swipe.id,

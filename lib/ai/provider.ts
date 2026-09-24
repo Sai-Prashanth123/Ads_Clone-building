@@ -163,6 +163,13 @@ export type ImageChoice = {
    * unknown, which is treated as honouring it: the hosted providers do.
    */
   honoursDimensions?: boolean;
+  /**
+   * Whether a word in the prompt comes back spelled correctly.
+   *
+   * The free models cannot do it, and an ad creative that imitates a screenshot
+   * lives or dies on one legible line. Measured rather than assumed.
+   */
+  rendersText?: boolean;
 };
 
 const IMAGE_CHOICES: Record<ProviderId, ImageChoice[]> = {

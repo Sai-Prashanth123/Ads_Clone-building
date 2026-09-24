@@ -377,12 +377,22 @@ export function fieldsToText(
     const groupCopy = group.fields.filter((f) => !f.notCopy);
 
     for (const item of items) {
-      const line = groupCopy
+      const body = groupCopy
         .map((f) => flat((item as Record<string, unknown>)?.[f.key]))
         .filter(Boolean)
-        .join(" — ");
+        .join(" — ")
+        .trim();
 
-      if (line) parts.push(`- ${line.replace(/\n+/g, " ").trim()}`);
+      if (!body) continue;
+
+      /* The bullet marks the item; the item's own lines are kept.
+       *
+       * Collapsing a post onto one line counted it as a single unit, so a post
+       * written as several short lines — which is how posts are written on X —
+       * read as one long sentence and dragged the rhythm dimension with it.
+       * Only the first line takes the marker, so the item count is unchanged. */
+      const [first, ...rest] = body.split("\n");
+      parts.push([`- ${first.trim()}`, ...rest.map((l) => l.trim())].join("\n"));
     }
   }
 
