@@ -100,6 +100,7 @@ function carousel(args: {
             label: "Card creative",
             max: 2000,
             multiline: true,
+            notCopy: true,
             hint: "A prompt for this card's image. Cards must look like one set.",
           },
         ],

@@ -276,6 +276,7 @@ export const ASPECT_RATIOS = [
 export function fidelityOptionsFor(spec: PlatformSpecT | FormatSpecT): {
   maxListItems?: number;
   expectsTerminalCta?: boolean;
+  listIsStructural?: boolean;
 } {
   const repeated = spec.fields.find((f) => f.repeat)?.repeat?.max;
   const grouped = spec.groups?.[0]?.max;
@@ -283,6 +284,9 @@ export function fidelityOptionsFor(spec: PlatformSpecT | FormatSpecT): {
   return {
     maxListItems: grouped ?? repeated,
     expectsTerminalCta: spec.expectsTerminalCta,
+    // Cards, posts and repeated assets are a list the FORMAT imposes, so the
+    // marker used to flatten them is not a choice the writer made.
+    listIsStructural: grouped != null || repeated != null,
   };
 }
 
@@ -354,23 +358,46 @@ export function fieldsToText(
     return "";
   };
 
-  const parts = spec.fields.map((f) => flat(fields[f.key]));
+  // Instructions to an image model are not words the reader meets.
+  const copyFields = spec.fields.filter((f) => !f.notCopy);
+  const parts = copyFields.map((f) => flat(fields[f.key]));
 
+  /* Cards and posts become a bulleted list, because that is what they are.
+   *
+   * Rendered as bare lines they carried no list signal at all, so ten carousel
+   * cards scored zero against a bulleted source — the scannable shape was
+   * present in the ad and absent from the text being measured. The glyph is
+   * ours rather than the writer's, which is why fidelityOptionsFor tells the
+   * guard not to compare bullet STYLE for these formats.
+   */
   for (const group of spec.groups ?? []) {
     const items = fields[group.key];
     if (!Array.isArray(items)) continue;
 
-    items.forEach((item, index) => {
-      const body = group.fields
+    const groupCopy = group.fields.filter((f) => !f.notCopy);
+
+    for (const item of items) {
+      const line = groupCopy
         .map((f) => flat((item as Record<string, unknown>)?.[f.key]))
         .filter(Boolean)
-        .join("\n");
+        .join(" — ");
 
-      if (body) parts.push(`${group.itemLabel} ${index + 1}\n${body}`);
-    });
+      if (line) parts.push(`- ${line.replace(/\n+/g, " ").trim()}`);
+    }
   }
 
-  return parts.filter(Boolean).join("\n\n").trim();
+  /* One block for the list, so the blank-line rhythm is not thrown off.
+   *
+   * Every top-level field is its own block; the items belong together as one. */
+  const [fieldParts, itemParts] = [
+    parts.slice(0, copyFields.length),
+    parts.slice(copyFields.length),
+  ];
+
+  const blocks = fieldParts.filter(Boolean);
+  if (itemParts.length) blocks.push(itemParts.join("\n"));
+
+  return blocks.join("\n\n").trim();
 }
 
 /** Pixel dimensions for an aspect, used by the image providers. */

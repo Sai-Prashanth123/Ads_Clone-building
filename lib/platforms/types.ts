@@ -21,6 +21,16 @@ export type FieldSpec = {
    * meaningless advice about a dropdown.
    */
   fixedChoice?: boolean;
+  /**
+   * Not ad copy — an instruction, a slug, a machine-facing value.
+   *
+   * A carousel card's imagePrompt is a brief for an image model. Scoring it
+   * counts "a dark forum post, charcoal and teal" as words the reader sees: it
+   * inflates the sentence length, feeds the image vocabulary into the
+   * originality check, and as the last thing in the flattened ad it makes the
+   * closing move read from a prompt instead of the CTA card.
+   */
+  notCopy?: boolean;
   hint: string;
 };
 

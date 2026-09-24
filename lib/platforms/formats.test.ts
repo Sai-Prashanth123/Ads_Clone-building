@@ -10,6 +10,8 @@ import {
 } from "./index";
 import { buildVariationSchema } from "../ai/schemas";
 import { validateAgainstSpec } from "./validate";
+import { checkFidelity } from "../fidelity";
+import { checkOriginality } from "../originality";
 
 /**
  * The formats that carry most paid spend — carousels, threads, RSAs — could not
@@ -118,19 +120,40 @@ describe("group generation schemas", () => {
 });
 
 describe("flattening for the guards", () => {
-  it("includes card copy, so a carousel is scored on what the reader reads", () => {
-    const text = fieldsToText(getFormat("linkedin", "carousel"), {
+  const carousel = () =>
+    fieldsToText(getFormat("linkedin", "carousel"), {
       introText: "Intro line.",
       cards: [
-        { headline: "First card", imagePrompt: "a chart" },
+        { headline: "First card", imagePrompt: "a dark forum post, charcoal" },
         { headline: "Second card", imagePrompt: "a desk" },
       ],
     });
 
+  it("includes card copy, so a carousel is scored on what the reader reads", () => {
+    const text = carousel();
+
     expect(text).toContain("Intro line.");
-    expect(text).toContain("Card 1");
     expect(text).toContain("First card");
     expect(text).toContain("Second card");
+  });
+
+  /* Cards ARE the list. Rendered as bare lines they carried no list signal, so
+   * ten carousel cards scored zero on list shape against a bulleted source —
+   * the scannable shape was in the ad and missing from the measured text. */
+  it("renders cards as a list, because that is what a reader sees", () => {
+    expect(carousel()).toContain("- First card");
+    expect(carousel()).toContain("- Second card");
+  });
+
+  /* An imagePrompt is a brief for an image model. Scored, it inflated the
+   * sentence length, fed image vocabulary into the originality check, and as
+   * the last line made the closing move read from a prompt, not the CTA card. */
+  it("leaves image prompts out entirely", () => {
+    const text = carousel();
+
+    expect(text).not.toContain("dark forum post");
+    expect(text).not.toContain("charcoal");
+    expect(text).not.toContain("a desk");
   });
 
   it("flattens a thread in post order", () => {
@@ -220,5 +243,51 @@ describe("what each format tells the fidelity guard", () => {
 
   it("caps nothing for a single free-form body", () => {
     expect(fidelityOptionsFor(getFormat("x", "post")).maxListItems).toBeUndefined();
+  });
+});
+
+describe("a carousel can actually pass fidelity now", () => {
+  /* The whole chain, end to end: a 36-item listicle cloned into ten cards.
+   *
+   * Every link had to be right for this to pass, and each was broken in a
+   * different way — the cards carried no list signal, the image prompts were
+   * being counted as copy, the 36-item target was unreachable, and the CTA card
+   * read as a change of closing move. */
+  const source = [
+    "36 ways to compete with a giant:",
+    "",
+    ...Array.from({ length: 36 }, (_, i) => `- Tactic number ${i + 1} goes here`),
+    "",
+    "Link below.",
+  ].join("\n");
+
+  const spec = getFormat("linkedin", "carousel");
+
+  const fields = {
+    introText: "10 moves a small team can use against an incumbent:",
+    cards: [
+      ...Array.from({ length: 9 }, (_, i) => ({
+        headline: `Fresh angle ${i + 1} written anew`,
+        imagePrompt: "a dark forum post, charcoal and teal, screenshot texture",
+      })),
+      { headline: "Learn more", imagePrompt: "a dark forum post, charcoal" },
+    ],
+  };
+
+  it("passes both guards", () => {
+    const text = fieldsToText(spec, fields);
+    const report = checkFidelity(text, source, fidelityOptionsFor(spec));
+
+    expect(checkOriginality(text, source).pass).toBe(true);
+    expect(report.pass).toBe(true);
+  });
+
+  it("reports the format's cost without blaming the draft", () => {
+    const text = fieldsToText(spec, fields);
+    const report = checkFidelity(text, source, fidelityOptionsFor(spec));
+
+    expect(report.drifted.join(" ")).toContain("not a fault in the draft");
+    // The CTA card is the format's convention, not a change of move.
+    expect(report.drifted.join(" ")).not.toContain("ends on");
   });
 });

@@ -97,6 +97,16 @@ export type FidelityOptions = {
    * sign-off pushed a rewrite toward worse copy to satisfy the measurement.
    */
   expectsTerminalCta?: boolean;
+  /**
+   * The list is cards or posts, not glyphs the writer chose.
+   *
+   * A carousel's items are discrete panels; a thread's are separate posts.
+   * Flattening them for scoring has to pick some marker, and that marker is
+   * ours — so comparing it against the source's "•" or "1." would report a
+   * mismatch about a decision the writer never made. Count and item length stay
+   * comparable, and carry the weight the style component would have had.
+   */
+  listIsStructural?: boolean;
 };
 
 /**
@@ -294,10 +304,12 @@ export function checkFidelity(
     },
     {
       dimension: "list shape",
-      match:
-        exactMatch(s.bulletStyle, c.bulletStyle) * 0.5 +
-        ratioMatch(targetItems, c.bulletCount) * 0.3 +
-        ratioMatch(s.bulletWords, c.bulletWords) * 0.2,
+      match: options.listIsStructural
+        ? ratioMatch(targetItems, c.bulletCount) * 0.6 +
+          ratioMatch(s.bulletWords, c.bulletWords) * 0.4
+        : exactMatch(s.bulletStyle, c.bulletStyle) * 0.5 +
+          ratioMatch(targetItems, c.bulletCount) * 0.3 +
+          ratioMatch(s.bulletWords, c.bulletWords) * 0.2,
       source: s.bulletStyle
         ? `${s.bulletStyle} ×${s.bulletCount}${cappedByFormat ? ` (format allows ${targetItems})` : ""}`
         : "none",
@@ -364,7 +376,7 @@ export function checkFidelity(
       `The original lists ${s.bulletCount} items and this format holds ${targetItems}. You are at the ceiling, so the remaining gap is the format's cost, not a fault in the draft — pick the strongest ${targetItems}.`,
     );
   }
-  if (!s.bulletStyle && c.bulletStyle) {
+  if (!s.bulletStyle && c.bulletStyle && !options.listIsStructural) {
     drifted.push(
       "The original is prose; yours is a bulleted list. That changes how it reads in feed.",
     );
