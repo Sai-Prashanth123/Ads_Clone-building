@@ -230,10 +230,18 @@ describe("what each format tells the fidelity guard", () => {
     expect(o.expectsTerminalCta).toBe(true);
   });
 
-  it("gives a thread its post ceiling and no CTA expectation", () => {
+  it("counts what a thread can CARRY, not how many posts it has", () => {
+    /* Twelve posts of 280 characters hold far more than twelve bullets, and
+     * saying otherwise told a writer who had fitted thirty of the source's
+     * thirty-six items that the format was the constraint. */
     const o = fidelityOptionsFor(getFormat("x", "thread"));
-    expect(o.maxListItems).toBe(12);
+
+    expect(o.maxListItems).toBeGreaterThan(36);
     expect(o.expectsTerminalCta).toBeUndefined();
+  });
+
+  it("holds a carousel to one item per card, because that is all a card fits", () => {
+    expect(fidelityOptionsFor(getFormat("linkedin", "carousel")).maxListItems).toBe(10);
   });
 
   it("reads a repeated field's ceiling when there is no group", () => {
@@ -318,5 +326,53 @@ describe("an item's own line breaks", () => {
     // Four short lines, not two long ones.
     const f = fingerprint(thread());
     expect(f.meanSentenceWords).toBeLessThan(6);
+  });
+});
+
+describe("an item that already carries its own list", () => {
+  /* Thirty-six source bullets into ten thread posts means each post carries
+   * three of them. The flattening added its own marker on top of the post's,
+   * so the thread read "- - tactic one" — and the item ceiling counted POSTS
+   * when a post holds several bullets, telling a writer who had fitted thirty
+   * of thirty-six that the format was the problem. It was not. */
+  const spec = getFormat("x", "thread");
+
+  const packed = () =>
+    fieldsToText(spec, {
+      hookPost: "36 ways a one-room gym beats a chain:",
+      posts: Array.from({ length: 10 }, (_, i) => ({
+        text: [
+          `- tactic ${i * 3 + 1} written out here`,
+          `- tactic ${i * 3 + 2} written out here`,
+          `- tactic ${i * 3 + 3} written out here`,
+        ].join("\n"),
+      })),
+    });
+
+  it("does not add a second bullet to a line that has one", () => {
+    expect(packed()).not.toContain("- - ");
+  });
+
+  it("counts every bullet, not every post", () => {
+    expect(fingerprint(packed()).bulletCount).toBe(30);
+  });
+
+  it("does not pretend the format capped a thread that had room", () => {
+    const source = [
+      "36 ways to compete:",
+      "",
+      ...Array.from({ length: 36 }, (_, i) => `- tactic ${i + 1} goes here`),
+    ].join("\n");
+
+    const report = checkFidelity(packed(), source, fidelityOptionsFor(spec));
+    const listShape = report.dimensions.find((d) => d.dimension === "list shape")!;
+
+    expect(String(listShape.source)).not.toContain("format allows");
+    expect(listShape.match).toBeGreaterThan(0.8);
+    expect(report.drifted.join(" ")).not.toContain("at the ceiling");
+  });
+
+  it("still caps a carousel, whose cards hold one line each", () => {
+    expect(fidelityOptionsFor(getFormat("linkedin", "carousel")).maxListItems).toBe(10);
   });
 });

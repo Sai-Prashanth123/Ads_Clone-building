@@ -18,7 +18,16 @@ export default function LibraryPage() {
   const [error, setError] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState("");
   const [hook, setHook] = React.useState<string>("");
-  const [open, setOpen] = React.useState<string | null>(null);
+  /* Opened from a link when one names a record.
+   *
+   * A saved run could only be answered with the library's front door, so
+   * finding the thing just saved meant scanning the list for it. Read once on
+   * mount rather than from a hook, because this is a starting state and not a
+   * subscription — clicking another card should not fight the URL. */
+  const [open, setOpen] = React.useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("swipe");
+  });
   const [loading, setLoading] = React.useState(true);
 
   const load = React.useCallback(async (q: string, h: string) => {

@@ -153,7 +153,8 @@ export function registerMemoryTools(server: McpServer): void {
           // Present the copy and the pictures here with get_swipe, rather than
           // sending the reader away to look at them.
           nextStep: `Call get_swipe("${result.id}") to show the full record and its creatives inline.`,
-          alsoAt: `${PUBLIC_URL}/library`,
+          // A link to THIS run, not to the front door of the library.
+          alsoAt: `${PUBLIC_URL}/library?swipe=${result.id}`,
         });
       } catch (err) {
         return fail(describeError(err));

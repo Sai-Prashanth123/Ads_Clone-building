@@ -295,8 +295,23 @@ export function fidelityOptionsFor(spec: PlatformSpecT | FormatSpecT): {
     ? Math.max(1, Math.round(generationMax(itemField) / 6))
     : undefined;
 
+  /* How many LIST items the format can carry, which is not the same as how
+   * many slots it has.
+   *
+   * A carousel headline holds one line, so ten cards carry ten items. A thread
+   * post holds 280 characters and can carry several bullets, so twelve posts
+   * carry far more than twelve — and capping at twelve told a writer who had
+   * fitted thirty of the source's thirty-six that the format was the problem.
+   * It was not; the format had room. */
+  const linesPerItem =
+    itemField?.multiline && itemField
+      ? Math.max(1, Math.floor(generationMax(itemField) / 40))
+      : 1;
+
+  const slots = grouped ?? repeated;
+
   return {
-    maxListItems: grouped ?? repeated,
+    maxListItems: slots != null ? slots * linesPerItem : undefined,
     expectsTerminalCta: spec.expectsTerminalCta,
     // Cards, posts and repeated assets are a list the FORMAT imposes, so the
     // marker used to flatten them is not a choice the writer made.
@@ -406,8 +421,13 @@ export function fieldsToText(
        * written as several short lines — which is how posts are written on X —
        * read as one long sentence and dragged the rhythm dimension with it.
        * Only the first line takes the marker, so the item count is unchanged. */
+      /* And only if it needs one: a post that already opens with a bullet was
+       * being given a second, so a flattened thread read "- - tactic one". */
       const [first, ...rest] = body.split("\n");
-      parts.push([`- ${first.trim()}`, ...rest.map((l) => l.trim())].join("\n"));
+      const head = first.trim();
+      const marked = /^([-–—•·*]|\d+[.)])\s+/.test(head) ? head : `- ${head}`;
+
+      parts.push([marked, ...rest.map((l) => l.trim())].join("\n"));
     }
   }
 
