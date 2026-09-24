@@ -164,8 +164,17 @@ function detectOpening(text: string): OpeningMove {
 }
 
 function detectClosing(text: string): ClosingMove {
-  const lines = text.trim().split("\n").filter((l) => l.trim());
-  const last = lines[lines.length - 1]?.trim() ?? "";
+  /* The last SENTENCE, not the last line.
+   *
+   * A thread post is one line of up to 280 characters, so a sign-off sitting at
+   * the end of it — "…the difference is the whole pitch. let's go." — was read
+   * against the whole 127-character post and came back as no closing move at
+   * all. Every thread clone was then told it had dropped an ending it had
+   * actually written. A short closer is its own sentence either way, so this
+   * costs nothing in the single-body case.
+   */
+  const sentences = splitSentences(text);
+  const last = sentences[sentences.length - 1]?.trim() ?? "";
   if (!last) return "none";
 
   /* Most social ads point at a link without pasting one: "link below", "in the

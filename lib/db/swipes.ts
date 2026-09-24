@@ -52,6 +52,69 @@ function decodeDataUrl(
   }
 }
 
+const PENDING = "pending";
+
+function extensionFor(mediaType: string): string {
+  return mediaType.split("/")[1]?.replace("jpeg", "jpg") ?? "png";
+}
+
+/**
+ * Store a creative that has no swipe yet, and return a URL.
+ *
+ * generate_image used to hand the image back as base64 in structuredContent.
+ * Most MCP clients surface only the content blocks to the model, so the caller
+ * could see the picture and had no way to reference it — which made an image
+ * impossible to save over MCP at all. A URL is short enough to carry through a
+ * conversation and back into save_swipe.
+ */
+export async function stageCreative(
+  dataUrl: string,
+): Promise<{ url: string; path: string } | null> {
+  const decoded = decodeDataUrl(dataUrl);
+  if (!decoded) return null;
+
+  const path = `${PENDING}/${crypto.randomUUID()}.${extensionFor(decoded.mediaType)}`;
+
+  const { error } = await getDb()
+    .storage.from(CREATIVES_BUCKET)
+    .upload(path, decoded.bytes, {
+      contentType: decoded.mediaType,
+      upsert: true,
+    });
+
+  if (error) return null;
+
+  const { data } = getDb().storage.from(CREATIVES_BUCKET).getPublicUrl(path);
+  return data.publicUrl ? { url: data.publicUrl, path } : null;
+}
+
+/**
+ * Move a staged creative under its swipe, so deleting the swipe still removes
+ * it. A failed move keeps the staged URL rather than losing the picture.
+ */
+async function adoptStaged(
+  swipeId: string,
+  angle: string,
+  url: string,
+): Promise<string> {
+  const marker = `/${CREATIVES_BUCKET}/${PENDING}/`;
+  const at = url.indexOf(marker);
+  if (at < 0) return url;
+
+  const from = `${PENDING}/${url.slice(at + marker.length).split("?")[0]}`;
+  const ext = from.split(".").pop() ?? "png";
+  const to = `${swipeId}/${angle}-${Date.now()}.${ext}`;
+
+  const { error } = await getDb()
+    .storage.from(CREATIVES_BUCKET)
+    .move(from, to);
+
+  if (error) return url;
+
+  const { data } = getDb().storage.from(CREATIVES_BUCKET).getPublicUrl(to);
+  return data.publicUrl ?? url;
+}
+
 async function uploadCreative(
   swipeId: string,
   angle: string,
@@ -60,8 +123,7 @@ async function uploadCreative(
   const decoded = decodeDataUrl(dataUrl);
   if (!decoded) return null;
 
-  const ext = decoded.mediaType.split("/")[1]?.replace("jpeg", "jpg") ?? "png";
-  const path = `${swipeId}/${angle}-${Date.now()}.${ext}`;
+  const path = `${swipeId}/${angle}-${Date.now()}.${extensionFor(decoded.mediaType)}`;
 
   const { error } = await getDb()
     .storage.from(CREATIVES_BUCKET)
@@ -86,7 +148,7 @@ export async function saveSwipe(args: {
    * than the model's original — otherwise the row claims a prompt that never
    * produced anything.
    */
-  images?: Record<string, { dataUrl: string; prompt?: string }>;
+  images?: Record<string, { dataUrl?: string; url?: string; prompt?: string }>;
   /** Which platform the copy was written for. */
   platform?: string;
   /** Which of that platform's formats — carousel, thread, RSA, story. */
@@ -121,9 +183,12 @@ export async function saveSwipe(args: {
   const rows = await Promise.all(
     args.variations.map(async (v) => {
       const generated = args.images?.[v.angle];
-      const imageUrl = generated
+
+      const imageUrl = generated?.dataUrl
         ? await uploadCreative(swipe.id, v.angle, generated.dataUrl)
-        : null;
+        : generated?.url
+          ? await adoptStaged(swipe.id, v.angle, generated.url)
+          : null;
 
       return {
         swipe_id: swipe.id,
@@ -140,14 +205,23 @@ export async function saveSwipe(args: {
         fields: v.fields ?? null,
         target_platform: args.platform ?? "x",
         target_format: args.format ?? null,
-        regenerated: v.regenerated,
+        regenerated: v.regenerated ?? false,
         image_url: imageUrl,
       };
     }),
   );
 
   const { error: clonesError } = await db.from("clones").insert(rows);
-  if (clonesError) throw new Error(clonesError.message);
+
+  if (clonesError) {
+    /* Roll the swipe back.
+     *
+     * Without this a failed clone insert left a source-only record in the
+     * library with zero variations, and a caller retrying the save left one
+     * per attempt. The swipe alone is not a useful record of anything. */
+    await db.from("swipes").delete().eq("id", swipe.id);
+    throw new Error(clonesError.message);
+  }
 
   return { id: swipe.id };
 }

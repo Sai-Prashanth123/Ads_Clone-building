@@ -391,3 +391,29 @@ describe("the drift notes do not contradict each other", () => {
     expect(notes).not.toContain("yours lists 10");
   });
 });
+
+describe("a closing move buried in a long block", () => {
+  /* A thread post is one line of up to 280 characters. Reading the closing move
+   * from the last LINE meant a sign-off at the end of the final post was
+   * measured against the whole post and came back as none — so every thread
+   * clone was told it had dropped an ending it had actually written. */
+  it("reads the last sentence, not the last line", () => {
+    const post =
+      "Answer every support message inside an hour. Their queue is measured in days and the difference is the whole pitch. let's go.";
+
+    expect(fingerprint(post).closing).toBe("sign-off");
+  });
+
+  it("still reads a short closer on its own line", () => {
+    expect(fingerprint("We shipped it.\n\nLink below.").closing).toBe("link");
+    expect(fingerprint("We shipped it.\n\nLearn more").closing).toBe("cta");
+  });
+
+  it("reports none when the copy genuinely just stops", () => {
+    expect(
+      fingerprint(
+        "We rebuilt the onboarding flow and conversions climbed the following quarter across every segment.",
+      ).closing,
+    ).toBe("none");
+  });
+});

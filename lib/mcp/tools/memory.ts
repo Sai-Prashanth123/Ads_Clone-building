@@ -30,7 +30,9 @@ export function registerMemoryTools(server: McpServer): void {
         "",
         "Save AFTER the guards pass. Include each variation's originality and spec reports so the record shows what was verified rather than what was hoped.",
         "",
-        "Pass a creative's `dataUrl` from generate_image to store the image alongside its copy.",
+        "Attach creatives by passing each angle's `imageUrl` from generate_image. They are already stored; saving moves them under this record so deleting the swipe removes them too.",
+        "",
+        "Include each variation's originality, fidelity and spec reports so the record shows what was verified rather than what was hoped.",
         "",
         `Saved runs appear at ${PUBLIC_URL}/library and feed get_playbook.`,
       ].join("\n"),
@@ -75,6 +77,12 @@ export function registerMemoryTools(server: McpServer): void {
               originality: z.record(z.string(), z.unknown()).optional(),
               fidelity: z.record(z.string(), z.unknown()).optional(),
               spec: z.record(z.string(), z.unknown()).optional(),
+              regenerated: z
+                .boolean()
+                .optional()
+                .describe(
+                  "True when this draft is the product of a rewrite after a guard flagged it. Defaults to false.",
+                ),
             }),
           )
           .min(1),
@@ -84,9 +92,24 @@ export function registerMemoryTools(server: McpServer): void {
           .optional()
           .describe("The format id the copy was written for, e.g. carousel."),
         images: z
-          .record(z.string(), z.object({ dataUrl: z.string(), prompt: z.string().optional() }))
+          .record(
+            z.string(),
+            z.object({
+              url: z
+                .string()
+                .optional()
+                .describe("The imageUrl generate_image returned. Prefer this."),
+              dataUrl: z
+                .string()
+                .optional()
+                .describe("Raw base64, only if you have it to hand."),
+              prompt: z.string().optional(),
+            }),
+          )
           .optional()
-          .describe("angle -> creative from generate_image."),
+          .describe(
+            "angle -> creative. Pass the imageUrl from generate_image; it is already stored and will be moved under this swipe.",
+          ),
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
