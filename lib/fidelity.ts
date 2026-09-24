@@ -107,7 +107,41 @@ export type FidelityOptions = {
    * comparable, and carry the weight the style component would have had.
    */
   listIsStructural?: boolean;
+  /**
+   * Roughly how many words one item can hold.
+   *
+   * A thread post takes 280 characters and a carousel headline 45, so "pack
+   * more into each item" is sound advice for one and impossible for the other.
+   * Without this the guard told a carousel writer to write eighteen words into
+   * a field that holds seven.
+   */
+  maxItemWords?: number;
 };
+
+/**
+ * How far an item's length may drift before it counts as drift.
+ *
+ * Two answers to a format ceiling are both right. Keeping the source's item
+ * rhythm is faithful; packing several of its ideas into each surviving item is
+ * faithful to the CONTENT, and a format that holds twelve posts against forty
+ * bullets forces one or the other. So this is a band rather than a target, and
+ * anything inside it scores full marks — only an item much thinner than the
+ * source's, or longer than the format can hold, is drift.
+ */
+function itemLengthMatch(
+  sourceWords: number,
+  cloneWords: number,
+  packing: number,
+  capacity: number | undefined,
+): number {
+  if (sourceWords <= 0) return ratioMatch(sourceWords, cloneWords);
+
+  const packed = sourceWords * packing;
+  const upper = Math.max(sourceWords, Math.min(packed, capacity ?? packed));
+
+  if (cloneWords >= sourceWords && cloneWords <= upper) return 1;
+  return ratioMatch(cloneWords < sourceWords ? sourceWords : upper, cloneWords);
+}
 
 /**
  * Closing moves that do the same job.
@@ -307,6 +341,23 @@ export function checkFidelity(
 
   const cappedByFormat = targetItems < s.bulletCount;
 
+  /* A capped list has to pack more into each item.
+   *
+   * Forty source bullets into twelve thread posts is three or four ideas a
+   * post, so each post is necessarily several times longer than the bullet it
+   * descends from. Comparing item length to the source's then charges the
+   * writer for the ceiling twice — once on the count, which is already
+   * forgiven, and again on the length, which was not. The expected length
+   * scales with how hard the format makes you pack. */
+  const packing = cappedByFormat ? s.bulletCount / targetItems : 1;
+
+  const itemWordsMatch = itemLengthMatch(
+    s.bulletWords,
+    c.bulletWords,
+    packing,
+    options.maxItemWords,
+  );
+
   // Weighted because these are not equally diagnostic. The opening move and
   // the list shape are what make an ad recognisably the same ad; block counts
   // drift harmlessly.
@@ -333,13 +384,14 @@ export function checkFidelity(
     {
       dimension: "list shape",
       match: options.listIsStructural
-        ? ratioMatch(targetItems, c.bulletCount) * 0.6 +
-          ratioMatch(s.bulletWords, c.bulletWords) * 0.4
+        ? ratioMatch(targetItems, c.bulletCount) * 0.6 + itemWordsMatch * 0.4
         : exactMatch(s.bulletStyle, c.bulletStyle) * 0.5 +
           ratioMatch(targetItems, c.bulletCount) * 0.3 +
-          ratioMatch(s.bulletWords, c.bulletWords) * 0.2,
+          itemWordsMatch * 0.2,
       source: s.bulletStyle
-        ? `${s.bulletStyle} ×${s.bulletCount}${cappedByFormat ? ` (format allows ${targetItems})` : ""}`
+        ? `${s.bulletStyle} ×${s.bulletCount}${
+            cappedByFormat ? ` (format allows ${targetItems})` : ""
+          }`
         : "none",
       clone: c.bulletStyle ? `${c.bulletStyle} ×${c.bulletCount}` : "none",
       weight: 0.2,
@@ -401,7 +453,7 @@ export function checkFidelity(
    * fix — the writer is already at the ceiling. */
   if (cappedByFormat && c.bulletCount >= targetItems) {
     drifted.push(
-      `The original lists ${s.bulletCount} items and this format holds ${targetItems}. You are at the ceiling, so the remaining gap is the format's cost, not a fault in the draft — pick the strongest ${targetItems}.`,
+      `The original lists ${s.bulletCount} items and this format holds ${targetItems}. You are at the ceiling, so the remaining gap is the format's cost, not a fault in the draft — pick the strongest ${targetItems}, or pack about ${Math.round(packing * 10) / 10} of the original's ideas into each.`,
     );
   }
   if (!s.bulletStyle && c.bulletStyle && !options.listIsStructural) {

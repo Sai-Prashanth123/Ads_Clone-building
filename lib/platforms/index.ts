@@ -277,9 +277,23 @@ export function fidelityOptionsFor(spec: PlatformSpecT | FormatSpecT): {
   maxListItems?: number;
   expectsTerminalCta?: boolean;
   listIsStructural?: boolean;
+  maxItemWords?: number;
 } {
-  const repeated = spec.fields.find((f) => f.repeat)?.repeat?.max;
-  const grouped = spec.groups?.[0]?.max;
+  const repeatedField = spec.fields.find((f) => f.repeat);
+  const repeated = repeatedField?.repeat?.max;
+  const group = spec.groups?.[0];
+  const grouped = group?.max;
+
+  /* How much one item can hold, in words.
+   *
+   * A thread post takes 280 characters and a carousel headline 45. Six
+   * characters a word is the usual English average including the space, and
+   * the exact figure matters less than the order of magnitude — the point is
+   * that one format can absorb a packed item and the other cannot. */
+  const itemField = group?.fields.find((f) => !f.notCopy) ?? repeatedField;
+  const maxItemWords = itemField
+    ? Math.max(1, Math.round(generationMax(itemField) / 6))
+    : undefined;
 
   return {
     maxListItems: grouped ?? repeated,
@@ -287,6 +301,7 @@ export function fidelityOptionsFor(spec: PlatformSpecT | FormatSpecT): {
     // Cards, posts and repeated assets are a list the FORMAT imposes, so the
     // marker used to flatten them is not a choice the writer made.
     listIsStructural: grouped != null || repeated != null,
+    maxItemWords,
   };
 }
 

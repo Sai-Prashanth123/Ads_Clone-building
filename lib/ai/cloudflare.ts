@@ -30,9 +30,12 @@ const LUCID = "@cf/leonardo/lucid-origin";
  * difference is the whole job — a garbled headline destroys the one thing the
  * format was chosen for.
  *
- * They are Leonardo partner models and bill in dollars rather than against the
- * free neuron allowance, which is why the free model stays the default: a tool
- * should not start spending money because it produced a better picture.
+ * They are Leonardo partner models with a per-image price, but on a free
+ * Workers plan every model — partner ones included — draws on the same 10,000
+ * daily neurons and fails the same way when it runs out. Billing separately
+ * only starts on Workers Paid. So picking one is a quality decision today and
+ * a spending decision the moment the account is upgraded, which is why the
+ * free model stays the default either way.
  */
 const TEXT_CAPABLE = new Set<string>([PHOENIX, LUCID]);
 
@@ -55,7 +58,7 @@ export const CLOUDFLARE_IMAGE_MODELS = [
     id: PHOENIX,
     label: "phoenix-1.0",
     note: "Renders a short headline legibly and correctly, and honours exact dimensions. The one to pick when the creative imitates a screenshot, a post or anything with a word in it.",
-    approxCost: "~$0.02 per image",
+    approxCost: "shares the free daily allowance; ~$0.02 each on Workers Paid",
     supportsImageInput: false,
     honoursDimensions: true,
     rendersText: true,
@@ -64,7 +67,7 @@ export const CLOUDFLARE_IMAGE_MODELS = [
     id: LUCID,
     label: "lucid-origin",
     note: "Also spells correctly, and renders body copy as convincing illegible texture rather than attempting it — which is what a real screenshot looks like at a glance.",
-    approxCost: "~$0.02 per image",
+    approxCost: "shares the free daily allowance; ~$0.02 each on Workers Paid",
     supportsImageInput: false,
     honoursDimensions: true,
     rendersText: true,
@@ -158,8 +161,11 @@ function failed(status: number, detail?: string): never {
     );
   }
   if (status === 429) {
+    /* Every model shares this, including the paid-tier ones — so "try the other
+     * model" is the wrong advice and was being followed. Say what actually
+     * changes the outcome. */
     throw new ActionableError(
-      "Cloudflare's free daily allowance (10,000 neurons) is used up. It resets every 24 hours.",
+      "Cloudflare's free daily allowance (10,000 neurons) is used up, and EVERY model here draws on it — switching models will not help until it resets in under 24 hours. Cloudflare's Workers Paid plan lifts the cap and bills the partner models per image.",
     );
   }
   throw new Error(

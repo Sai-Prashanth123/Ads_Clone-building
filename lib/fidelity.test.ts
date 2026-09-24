@@ -441,3 +441,76 @@ describe("a sign-off is not a call to action", () => {
     ).toBe("none");
   });
 });
+
+describe("item length when the format forces packing", () => {
+  /* Forty source bullets into twelve thread posts is three or four ideas a
+   * post, so each post is necessarily several times longer than the bullet it
+   * descends from. Charging the writer for that is charging twice for the same
+   * ceiling — once on the count, which is already forgiven, and again on the
+   * length, which was not. */
+  const bullets = (n: number, words: string) =>
+    ["40 ways to win:", "", ...Array.from({ length: n }, () => `- ${words}`)].join("\n");
+
+  const source = bullets(40, "Ship the thing today");
+
+  it("accepts an item that packs several of the source's ideas in", () => {
+    const packed = bullets(
+      12,
+      "Ship the thing today and tell them why it matters and then move to the next one quickly",
+    );
+
+    const listShape = (o: Parameters<typeof checkFidelity>[2]) =>
+      checkFidelity(packed, source, o).dimensions.find(
+        (d) => d.dimension === "list shape",
+      )!.match;
+
+    // A thread post holds ~46 words, so packing is available to the writer.
+    expect(listShape({ maxListItems: 12, maxItemWords: 46 })).toBeGreaterThan(0.9);
+  });
+
+  it("also accepts an item that simply keeps the source's rhythm", () => {
+    const short = bullets(12, "Ship the thing today");
+
+    const report = checkFidelity(short, source, {
+      maxListItems: 12,
+      maxItemWords: 46,
+    });
+
+    // Both answers to the ceiling are legitimate, so neither is drift.
+    expect(
+      report.dimensions.find((d) => d.dimension === "list shape")!.match,
+    ).toBeGreaterThan(0.9);
+  });
+
+  it("does not ask for more words than the item can hold", () => {
+    // A carousel headline takes ~7 words; telling the writer to pack 18 into it
+    // is advice the format makes impossible to follow.
+    const cards = bullets(10, "Ship it today");
+
+    const report = checkFidelity(cards, source, {
+      maxListItems: 10,
+      maxItemWords: 7,
+    });
+
+    expect(
+      report.dimensions.find((d) => d.dimension === "list shape")!.match,
+    ).toBeGreaterThan(0.75);
+  });
+
+  it("still flags an item far thinner than the source's", () => {
+    /* The band forgives packing, not hollowing out. Twelve one-word posts
+     * against forty four-word bullets is not a format cost — it is most of the
+     * ad missing, and it has to score worse than a faithful answer. */
+    const opts = { maxListItems: 12, maxItemWords: 46, listIsStructural: true };
+    const shapeOf = (text: string) =>
+      checkFidelity(text, source, opts).dimensions.find(
+        (d) => d.dimension === "list shape",
+      )!.match;
+
+    const faithful = shapeOf(bullets(12, "Ship the thing today"));
+    const thin = shapeOf(bullets(12, "Do"));
+
+    expect(thin).toBeLessThan(faithful);
+    expect(faithful - thin).toBeGreaterThan(0.15);
+  });
+});
