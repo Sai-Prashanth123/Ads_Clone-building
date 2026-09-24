@@ -398,8 +398,21 @@ export function checkFidelity(
     },
     {
       dimension: "sentence rhythm",
+      /* Packing lengthens the sentences too.
+       *
+       * Three of the source's one-line bullets in a single thread post is one
+       * longer sentence, so charging the rhythm dimension for it is the same
+       * ceiling billed a third time — after the count and the item length. The
+       * same band applies: the source's own rhythm and the packed rhythm are
+       * both faithful answers, and only drifting past either end is drift. */
       match:
-        ratioMatch(s.meanSentenceWords, c.meanSentenceWords) * 0.6 +
+        itemLengthMatch(
+          s.meanSentenceWords,
+          c.meanSentenceWords,
+          packing,
+          options.maxItemWords,
+        ) *
+          0.6 +
         ratioMatch(s.sentenceVariance, c.sentenceVariance) * 0.4,
       source: `${s.meanSentenceWords}w mean`,
       clone: `${c.meanSentenceWords}w mean`,
@@ -473,7 +486,14 @@ export function checkFidelity(
       `The original lists ${s.bulletCount} items; yours lists ${c.bulletCount}.`,
     );
   }
-  if (ratioMatch(s.meanSentenceWords, c.meanSentenceWords) < 0.5) {
+  if (
+    itemLengthMatch(
+      s.meanSentenceWords,
+      c.meanSentenceWords,
+      packing,
+      options.maxItemWords,
+    ) < 0.5
+  ) {
     drifted.push(
       `Sentence length drifted: ${s.meanSentenceWords} words on average versus your ${c.meanSentenceWords}. Punchy copy must stay punchy.`,
     );

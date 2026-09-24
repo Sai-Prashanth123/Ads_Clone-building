@@ -514,3 +514,68 @@ describe("item length when the format forces packing", () => {
     expect(faithful - thin).toBeGreaterThan(0.15);
   });
 });
+
+describe("the ceiling is charged once, not three times", () => {
+  /* The same packing showed up in three dimensions in turn — the item count,
+   * then the item length, then the sentence rhythm. Each was fixed and the next
+   * appeared, because they all measure a consequence of the same constraint.
+   * This holds the whole set at once. */
+  const source = [
+    "40 ways to win:",
+    "",
+    ...Array.from({ length: 40 }, (_, i) => `- Ship the thing today ${i + 1}`),
+  ].join("\n");
+
+  const packedThread = [
+    "12 moves a small team can actually run:",
+    "",
+    ...Array.from(
+      { length: 12 },
+      (_, i) =>
+        `- Ship the thing today and tell them exactly why it matters before moving on, number ${i + 1}`,
+    ),
+  ].join("\n");
+
+  const options = {
+    maxListItems: 12,
+    maxItemWords: 46,
+    listIsStructural: true,
+  };
+
+  it("does not report drift on any dimension the packing caused", () => {
+    const report = checkFidelity(packedThread, source, options);
+    const by = (n: string) => report.dimensions.find((d) => d.dimension === n)!.match;
+
+    expect(by("list shape")).toBeGreaterThan(0.9);
+
+    /* The mean is forgiven; the spread is not, and should not be — forty short
+     * bullets and twelve long posts genuinely vary differently. What matters is
+     * that the mean no longer drags this to 0.15 and no longer reports drift. */
+    expect(by("sentence rhythm")).toBeGreaterThan(0.55);
+    expect(report.drifted.join(" ")).not.toContain("Sentence length drifted");
+  });
+
+  it("scores far better than the same draft measured without the ceiling", () => {
+    const withCeiling = checkFidelity(packedThread, source, options).score;
+    const without = checkFidelity(packedThread, source).score;
+
+    expect(withCeiling).toBeGreaterThan(without + 10);
+  });
+
+  it("still catches a draft that is genuinely long-winded", () => {
+    const rambling = [
+      "12 moves:",
+      "",
+      ...Array.from(
+        { length: 12 },
+        () =>
+          "- There is a case to be made that shipping quickly matters a great deal, and while reasonable people differ on the specifics of how one might go about it in practice, the broad direction of travel is not really in dispute among those who have looked at it closely",
+      ),
+    ].join("\n");
+
+    const report = checkFidelity(rambling, source, options);
+    expect(
+      report.dimensions.find((d) => d.dimension === "sentence rhythm")!.match,
+    ).toBeLessThan(0.6);
+  });
+});
