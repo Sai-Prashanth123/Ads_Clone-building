@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { McpServer } from "@modelcontextprotocol/server";
+import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
 import { createImage } from "../../ai/image";
 import { describeError } from "../../ai/errors";
 import { getImageChoices, imageProviderLabel } from "../../ai/provider";
@@ -16,6 +16,124 @@ import { fail, ok } from "../result";
  * Cloudflare Workers AI gives roughly 190 free FLUX images a day. Claude cannot
  * produce images at all, and neither host can emit one through a tool call.
  */
+type RenderedCreative = {
+  label: string;
+  line: string;
+  base64?: string;
+  mediaType?: string;
+  imageUrl: string | null;
+  model: string | null;
+  frameMatchesAspect: boolean;
+  textWillBeGarbled: boolean;
+  error?: string;
+};
+
+/**
+ * One creative, rendered and described.
+ *
+ * Shared by the single render and the batch so the two cannot drift: the same
+ * two traps are reported the same way, and the same staged URL comes back for
+ * save_swipe. A failure is returned rather than thrown, because in a batch one
+ * exhausted quota should cost the remaining pictures and not the ones already
+ * made.
+ */
+async function renderOne(args: {
+  label?: string;
+  prompt: string;
+  negatives?: string;
+  model?: string;
+  aspect: string;
+  referenceImageUrl?: string;
+}): Promise<RenderedCreative> {
+  const prefix = args.label ? `${args.label} — ` : "";
+
+  try {
+    const image = await createImage({
+      prompt: args.prompt,
+      negatives: args.negatives,
+      model: args.model,
+      aspectRatio: args.aspect as Parameters<typeof createImage>[0]["aspectRatio"],
+      referenceImageUrl: args.referenceImageUrl,
+    });
+
+    const choice = getImageChoices().find((c) => c.id === image.model);
+
+    /* Say when the frame is not the one that was asked for.
+     *
+     * The default model composes for the aspect and returns a square file
+     * regardless. Fine for a feed image, wrong for a story, and invisible
+     * unless the result mentions it. */
+    const squareInstead =
+      choice?.honoursDimensions === false && args.aspect !== "1:1";
+
+    /* Did the prompt ask for a word the model cannot spell?
+     *
+     * The free models garble any text they render — measured: "small brands
+     * win" came back as "small brandes win", twice over. A creative imitating
+     * a screenshot lives on that one line. */
+    const wantsText = /"[^"]{2,60}"|'[^']{2,60}'/.test(args.prompt);
+    const cannotSpell = wantsText && choice?.rendersText === false;
+
+    const staged = isSwipeFileEnabled()
+      ? await stageCreative(image.dataUrl)
+      : null;
+
+    const frame = squareInstead
+      ? `${prefix}rendered with ${image.model}, composed for ${args.aspect} but written as a square 1024x1024 file — this model cannot set dimensions.`
+      : `${prefix}rendered with ${image.model} at ${args.aspect}.`;
+
+    const spelling = cannotSpell
+      ? ` Your prompt asks for text and ${choice?.label} cannot spell it — expect it garbled. Re-render with a model whose rendersText is true if the words matter.`
+      : "";
+
+    const keep = staged
+      ? ` Pass imageUrl "${staged.url}" to save_swipe to keep it.`
+      : " No swipe file is configured, so it is not stored anywhere.";
+
+    return {
+      label: args.label ?? "",
+      line: `${frame}${spelling}${keep}`,
+      base64: image.dataUrl.split(",")[1] ?? "",
+      mediaType: image.mediaType,
+      imageUrl: staged?.url ?? null,
+      model: image.model,
+      frameMatchesAspect: !squareInstead,
+      textWillBeGarbled: cannotSpell,
+    };
+  } catch (err) {
+    const message = describeError(err, imageProviderLabel());
+    return {
+      label: args.label ?? "",
+      line: `${prefix}not rendered: ${message}`,
+      imageUrl: null,
+      model: null,
+      frameMatchesAspect: false,
+      textWillBeGarbled: false,
+      error: message,
+    };
+  }
+}
+
+
+/** One rendered creative as a tool result: the note, then the picture. */
+function renderResult(r: RenderedCreative): CallToolResult {
+  if (r.error) return fail(r.line);
+
+  return {
+    content: [
+      { type: "text", text: r.line },
+      { type: "image", data: r.base64 ?? "", mimeType: r.mediaType ?? "image/png" },
+    ],
+    structuredContent: {
+      model: r.model,
+      mediaType: r.mediaType,
+      imageUrl: r.imageUrl,
+      frameMatchesAspect: r.frameMatchesAspect,
+      textWillBeGarbled: r.textWillBeGarbled,
+    },
+  };
+}
+
 export function registerCreativeTools(server: McpServer): void {
   server.registerTool(
     "generate_image",
@@ -30,7 +148,7 @@ export function registerCreativeTools(server: McpServer): void {
         "",
         "Expect to re-roll. These models are stochastic and a second attempt at the same prompt often fixes a garbled word, so look at what came back rather than assuming it worked.",
         "",
-        "AND NOT EVERY MODEL CAN SPELL. The free ones garble any word you ask them to render — the same prompt came back as \"small brandes win\", twice over — which ruins a creative that imitates a screenshot or a post, because the format IS the mechanism and a misspelt headline gives it away. If your prompt contains a line of text, pick a model whose `rendersText` is true. Those bill per image rather than against the free allowance, so it is a real choice; the result says plainly when you have asked the wrong model for text.",
+        "AND NOT EVERY MODEL CAN SPELL. The free ones garble any word you ask them to render — the same prompt came back as \"small brandes win\", twice over — which ruins a creative that imitates a screenshot or a post, because the format IS the mechanism and a misspelt headline gives it away. If your prompt contains a line of text, pick a model whose `rendersText` is true. On a free Workers plan they draw on the same daily allowance as everything else; on Workers Paid they bill per image. The result says plainly when you have asked the wrong model for text.",
         "",
         "NOT every model returns the frame you ask for. The default composes for the aspect but always writes a square file; pick one whose `honoursDimensions` is true when the file's shape matters, such as a 9:16 story. The result says which you got.",
         "",
@@ -54,74 +172,16 @@ export function registerCreativeTools(server: McpServer): void {
       },
       annotations: { readOnlyHint: false, openWorldHint: true },
     },
-    async (args) => {
-      try {
-        const image = await createImage(args);
-        const base64 = image.dataUrl.split(",")[1] ?? "";
-
-        const aspect = args.aspectRatio ?? "16:9";
-        const choice = getImageChoices().find((c) => c.id === image.model);
-
-        /* Say when the frame is not the one that was asked for.
-         *
-         * The default model composes for the aspect and returns a square file
-         * regardless. That is fine for a feed image and wrong for a story, and
-         * the difference is invisible unless the result mentions it. */
-        const squareInstead =
-          choice?.honoursDimensions === false && aspect !== "1:1";
-
-        /* Did the prompt ask for a word the model cannot spell?
-         *
-         * The free models garble any text they are asked to render — measured:
-         * "small brands win" came back as "small brandes win", twice over. An
-         * ad creative imitating a screenshot lives on that one line, so a
-         * silently garbled headline wastes the render and the idea with it. */
-        const wantsText = /"[^"]{2,60}"|'[^']{2,60}'/.test(args.prompt);
-        const cannotSpell = wantsText && choice?.rendersText === false;
-
-        /* Park the creative somewhere the caller can point at.
-         *
-         * Handing back base64 in structuredContent showed the model a picture
-         * it had no way to reference — most clients surface only the content
-         * blocks — so an image could never be attached to a save over MCP.
-         * A URL survives the round trip; a megabyte of base64 does not. */
-        const staged = isSwipeFileEnabled()
-          ? await stageCreative(image.dataUrl)
-          : null;
-
-        const line = squareInstead
-          ? `Rendered with ${image.model}, composed for ${aspect} but written as a square 1024x1024 file — this model cannot set dimensions. Re-render with a model whose honoursDimensions is true if the file has to be ${aspect}.`
-          : `Rendered with ${image.model} at ${aspect}.`;
-
-        const spelling = cannotSpell
-          ? ` Your prompt asks for text in the image and ${choice?.label} cannot spell — expect it garbled. Re-render with a model whose rendersText is true if the words matter.`
-          : "";
-
-        const note = staged
-          ? `${line}${spelling} Pass imageUrl "${staged.url}" to save_swipe to keep it.`
-          : `${line}${spelling} No swipe file is configured, so it is not stored anywhere.`;
-
-        return {
-          content: [
-            { type: "text", text: note },
-            { type: "image", data: base64, mimeType: image.mediaType },
-          ],
-          // The data URL goes back too, so save_swipe can store the creative
-          // without the host having to re-encode an image it just received.
-          structuredContent: {
-            model: image.model,
-            mediaType: image.mediaType,
-            requestedAspect: aspect,
-            frameMatchesAspect: !squareInstead,
-            imageUrl: staged?.url ?? null,
-            textWillBeGarbled: cannotSpell,
-            dataUrl: image.dataUrl,
-          },
-        };
-      } catch (err) {
-        return fail(describeError(err, imageProviderLabel()));
-      }
-    },
+    async (args) =>
+      renderResult(
+        await renderOne({
+          prompt: args.prompt,
+          negatives: args.negatives,
+          model: args.model,
+          aspect: args.aspectRatio ?? "16:9",
+          referenceImageUrl: args.referenceImageUrl,
+        }),
+      ),
   );
 
   server.registerTool(
@@ -140,6 +200,107 @@ export function registerCreativeTools(server: McpServer): void {
         canGenerate: choices.length > 0,
         models: choices,
       });
+    },
+  );
+
+  server.registerTool(
+    "generate_images",
+    {
+      title: "Render every variation's creative in one call",
+      description: [
+        "Render a creative for each variation and return them all as images, in order, labelled by angle.",
+        "",
+        "Use this rather than calling generate_image once per angle. A set of variations is meant to be compared, and comparing them means seeing them together — one call puts every creative in the reply instead of scattering them through the conversation or, worse, behind a link.",
+        "",
+        "Each result carries an `imageUrl` to pass to save_swipe under the matching angle.",
+        "",
+        "The same two traps as the single render apply to every entry: a model that cannot set dimensions writes a square whatever you ask for, and a model that cannot spell garbles any word in the prompt. Both are reported per creative rather than for the batch.",
+        "",
+        "Cards of one carousel must look like one set — same palette, same render style, same framing logic — so say that in every prompt rather than hoping.",
+        "",
+        "A render that fails does not stop the others: it comes back with its reason, so a quota that runs out mid-batch costs the remaining pictures and not the ones already made.",
+      ].join("\n"),
+      inputSchema: {
+        creatives: z
+          .array(
+            z.object({
+              label: z
+                .string()
+                .min(1)
+                .max(80)
+                .describe("The angle, or the card's position. Shown above its image."),
+              prompt: z.string().min(4).max(4000),
+              negatives: z.string().max(1000).optional(),
+            }),
+          )
+          .min(1)
+          .max(6)
+          .describe("One entry per variation, in the order you want them shown."),
+        model: z.string().optional().describe("From list_image_models."),
+        aspectRatio: z.enum(ASPECT_RATIOS).optional(),
+      },
+      annotations: { readOnlyHint: false, openWorldHint: true },
+    },
+    async ({ creatives, model, aspectRatio }) => {
+      const aspect = aspectRatio ?? "16:9";
+
+      /* Rendered in sequence on purpose.
+       *
+       * The provider bills a shared daily allowance and answers 429 when it is
+       * gone. Firing six at once turns one exhausted quota into six failures
+       * and six wasted waits; in sequence, the ones before it still land. */
+      const results: RenderedCreative[] = [];
+
+      for (const c of creatives) {
+        results.push(
+          await renderOne({
+            label: c.label,
+            prompt: c.prompt,
+            negatives: c.negatives,
+            model,
+            aspect,
+          }),
+        );
+      }
+
+      const content: CallToolResult["content"] = [];
+
+      for (const r of results) {
+        content.push({ type: "text", text: r.line });
+        if (r.base64 && r.mediaType) {
+          content.push({
+            type: "image",
+            data: r.base64,
+            mimeType: r.mediaType,
+          });
+        }
+      }
+
+      const rendered = results.filter((r) => r.base64).length;
+
+      content.unshift({
+        type: "text",
+        text:
+          rendered === results.length
+            ? `${rendered} creative${rendered === 1 ? "" : "s"}, in order.`
+            : `${rendered} of ${results.length} rendered. The rest say why below.`,
+      });
+
+      return {
+        content,
+        structuredContent: {
+          rendered,
+          failed: results.length - rendered,
+          creatives: results.map((r) => ({
+            label: r.label,
+            imageUrl: r.imageUrl,
+            model: r.model,
+            frameMatchesAspect: r.frameMatchesAspect,
+            textWillBeGarbled: r.textWillBeGarbled,
+            error: r.error,
+          })),
+        },
+      };
     },
   );
 }

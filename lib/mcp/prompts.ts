@@ -177,7 +177,7 @@ export function registerPrompts(server: McpServer): void {
               "5. Use the write_variations prompt for that platform AND format.",
               "6. Verify with check_clone on each variation, passing the fields rather than a string you joined yourself. Then check_convergence across the set.",
               "7. Revise what it names and re-check. Repeat until clean, or until the only notes left are ones the format makes impossible — say which.",
-              "8. list_image_models, then generate_image for the creatives. Inherit the original visual's JOB and keep its format when the format is the mechanism. Pick a model that honours dimensions if the frame shape matters for this format, and report the frame you actually got.",
+              "8. list_image_models, then generate_images — one call carrying a prompt for EVERY variation, so the set comes back together. Inherit the original visual's JOB and keep its format when the format is the mechanism. Pick a model that honours dimensions if the frame shape matters, and one that can spell if the creative carries a word. Report the frame you actually got for each.",
               "9. save_swipe with the verified reports and the creatives attached.",
               "",
               "Show me each variation with its character counts and BOTH scores — originality and fidelity. They are opposite axes and a clone has to be high on both; a high originality score alone can mean you wrote a good ad that is not a clone of this one. Say plainly if anything could not be made to pass.",

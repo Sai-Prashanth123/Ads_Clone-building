@@ -33,7 +33,7 @@ export const MCP_INSTRUCTIONS = [
   "5. Write the variations: same skeleton, every surface changed.",
   "6. VERIFY with check_clone. One call returns all three verdicts — originality against the source, fidelity to its shape, and the platform's character limits.",
   "7. Revise what it names and check again. This loop is the product.",
-  "8. generate_image, then save_swipe — then get_swipe to show the finished run, copy and creatives together, in the conversation. Do not answer with a link to the library when the work can be shown here.",
+  "8. generate_images — ONE call with every variation's prompt, so the whole set comes back together and can be compared. Then save_swipe with each imageUrl, and get_swipe to show the finished run. Do not answer with a link to the library when the work can be shown here.",
   "",
   "Or call clone_ad_auto, which runs that whole loop itself: it asks you to write, measures the result, and comes back with exactly what failed until it passes. Nothing unverified reaches the caller. Use it when you want the finished answer; use the individual tools when you want to make the calls yourself.",
   "",
