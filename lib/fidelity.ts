@@ -191,11 +191,22 @@ function detectClosing(text: string): ClosingMove {
   return "none";
 }
 
+/**
+ * A line break ends a unit in ad copy.
+ *
+ * Joining lines before splitting on punctuation made a 36-item bullet list read
+ * as ONE sentence of 225 words, because bullets rarely carry a full stop. The
+ * clone's ten cards came out at 51 by the same route, so the rhythm dimension
+ * was comparing two artifacts of the measurement rather than two ads — and
+ * reporting drift on both. Ad copy is written in lines deliberately; that is the
+ * premise the block-rhythm dimension already rests on.
+ */
 function splitSentences(text: string): string[] {
   return text
-    .replace(/\n+/g, " ")
-    .split(/(?<=[.!?])\s+/)
-    .map((s) => s.trim())
+    .split("\n")
+    .flatMap((line) => line.split(/(?<=[.!?])\s+/))
+    // A bullet marker is not a word.
+    .map((s) => s.replace(/^\s*([-–—•·*]|\d+[.)])\s+/, "").trim())
     .filter((s) => s.split(/\s+/).filter(Boolean).length > 0);
 }
 
@@ -381,7 +392,14 @@ export function checkFidelity(
       "The original is prose; yours is a bulleted list. That changes how it reads in feed.",
     );
   }
-  if (s.bulletStyle && c.bulletStyle && ratioMatch(s.bulletCount, c.bulletCount) < 0.5) {
+  // Only when the gap is the draft's doing. Saying "yours lists 10" directly
+  // after "you are at the ceiling" contradicted the line above it.
+  if (
+    s.bulletStyle &&
+    c.bulletStyle &&
+    !cappedByFormat &&
+    ratioMatch(targetItems, c.bulletCount) < 0.5
+  ) {
     drifted.push(
       `The original lists ${s.bulletCount} items; yours lists ${c.bulletCount}.`,
     );

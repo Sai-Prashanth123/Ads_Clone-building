@@ -324,3 +324,70 @@ describe("what the target format makes impossible", () => {
     ).not.toContain("ends on");
   });
 });
+
+describe("sentence rhythm in list-heavy copy", () => {
+  /* Bullets rarely carry a full stop. Joining the lines before splitting on
+   * punctuation made a 36-item list read as ONE sentence of 225 words, so the
+   * rhythm dimension compared two artifacts of the measurement rather than two
+   * ads — and reported drift on both. */
+  const listicle = [
+    "36 ways to compete with a giant:",
+    "",
+    ...Array.from({ length: 36 }, (_, i) => `- Tactic number ${i + 1} here`),
+    "",
+    "Link below.",
+  ].join("\n");
+
+  it("counts each line as its own unit", () => {
+    const f = fingerprint(listicle);
+
+    expect(f.sentences).toBe(38);
+    expect(f.meanSentenceWords).toBeLessThan(10);
+  });
+
+  it("does not count the bullet marker as a word", () => {
+    const withMarkers = fingerprint("- one two three\n- four five six");
+    const without = fingerprint("one two three\nfour five six");
+
+    expect(withMarkers.meanSentenceWords).toBe(without.meanSentenceWords);
+  });
+
+  it("still splits prose on punctuation", () => {
+    const f = fingerprint("First sentence here. Second one follows. Third ends it.");
+    expect(f.sentences).toBe(3);
+  });
+
+  it("does not report rhythm drift between two list-shaped ads", () => {
+    const shorter = [
+      "10 moves for a small team:",
+      "",
+      ...Array.from({ length: 10 }, (_, i) => `- Fresh angle ${i + 1} anew`),
+      "",
+      "Details in the comments.",
+    ].join("\n");
+
+    const report = checkFidelity(shorter, listicle, { maxListItems: 10 });
+    expect(report.drifted.join(" ")).not.toContain("Sentence length drifted");
+  });
+});
+
+describe("the drift notes do not contradict each other", () => {
+  it("says the ceiling OR the shortfall, never both", () => {
+    const source = [
+      "36 ways:",
+      "",
+      ...Array.from({ length: 36 }, (_, i) => `- Item ${i + 1} written out`),
+    ].join("\n");
+
+    const atCeiling = [
+      "10 ways:",
+      "",
+      ...Array.from({ length: 10 }, (_, i) => `- Fresh ${i + 1} written out`),
+    ].join("\n");
+
+    const notes = checkFidelity(atCeiling, source, { maxListItems: 10 }).drifted.join(" ");
+
+    expect(notes).toContain("You are at the ceiling");
+    expect(notes).not.toContain("yours lists 10");
+  });
+});
