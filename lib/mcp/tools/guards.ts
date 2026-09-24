@@ -8,6 +8,8 @@ import {
 } from "../../originality";
 import type { FormatSpec, PlatformId } from "../../platforms/types";
 import {
+  fidelityOptionsFor,
+  fieldsToText,
   generationMax,
   getFormat,
   PLATFORM_IDS,
@@ -19,7 +21,7 @@ import {
   FIDELITY_THRESHOLD,
   verifyBeatMapping,
 } from "../../fidelity";
-import { ok } from "../result";
+import { fail, ok } from "../result";
 
 /**
  * The guards.
@@ -118,19 +120,28 @@ export function registerGuardTools(server: McpServer): void {
         "Use this rather than the individual tools. The three have to be read together — passing one while failing another is the interesting case, and checking them separately invites fixing one and breaking the next.",
         "",
         "Optionally verifies beatMapping: every claimed line must actually appear in your copy, and the roles must follow the source's beat order. Without this the mapping is just an assertion.",
+        "",
+        "PASS `fields` RATHER THAN `candidate` whenever you can. Given the platform, the format and the fields, this flattens the ad the way a reader meets it — including every carousel card and thread post, in order. Flattening it yourself makes the fidelity score depend on the arrangement you happened to choose, so the number describes your formatting rather than the copy. Use `candidate` alone only for a single free-form body.",
+        "",
+        "It also reads the format's real ceiling: a carousel holds 10 cards, so a 36-item source is scored against 10 rather than against an item count no carousel could ever reach.",
       ].join("\n"),
       inputSchema: {
         candidate: z
           .string()
           .min(1)
-          .describe("The draft's full text, all fields joined."),
+          .optional()
+          .describe(
+            "The draft as one string. Only needed when you are not passing `fields`.",
+          ),
         original: z.string().min(1),
         platform: z.enum(PLATFORM_IDS as [string, ...string[]]).optional(),
         format: z.string().optional().describe("Format id, e.g. 'carousel'."),
         fields: z
           .record(z.string(), z.unknown())
           .optional()
-          .describe("Field key -> copy, for the spec check."),
+          .describe(
+            "Field key -> copy. Arrays for repeated fields, arrays of objects for card groups. Preferred over `candidate`: the spec check needs it, and the guards then score the same text the platform would render.",
+          ),
         beatMapping: z
           .array(z.object({ role: z.string(), line: z.string() }))
           .optional(),
@@ -150,23 +161,49 @@ export function registerGuardTools(server: McpServer): void {
       beatMapping,
       sourceBeatRoles,
     }) => {
-      const originality = checkOriginality(candidate, original);
-      const fidelity = checkFidelity(candidate, original);
+      const spec = platform ? getFormat(platform, format) : null;
 
-      const spec =
-        platform && fields
-          ? validateAgainstSpec(getFormat(platform, format), fields)
-          : null;
+      /* Flatten the ad here rather than trusting the caller's arrangement.
+       *
+       * A carousel handed over as `candidate` is whatever string the caller
+       * assembled — intro, then headlines as bullets, then the last card. That
+       * choice moves the fidelity score, so the number ends up describing the
+       * caller's formatting instead of the copy. fieldsToText is the same
+       * flattening the web pipeline scores and the library stores. */
+      const scored =
+        spec && fields ? fieldsToText(spec, fields) : (candidate ?? "");
+
+      if (!scored.trim()) {
+        return fail(
+          "Nothing to check. Pass `fields` with `platform` (and `format`), or `candidate` as a single string.",
+        );
+      }
+
+      const originality = checkOriginality(scored, original);
+
+      /* The format's real ceiling.
+       *
+       * A carousel holds ten cards, so a 36-item listicle cannot be matched
+       * item for item however well it is written. Scoring against 36 reported a
+       * drift no rewrite could clear, and an unclearable finding teaches the
+       * reader to ignore the report. */
+      const fidelity = checkFidelity(
+        scored,
+        original,
+        spec ? fidelityOptionsFor(spec) : {},
+      );
+
+      const specReport = spec && fields ? validateAgainstSpec(spec, fields) : null;
 
       const beats =
         beatMapping && sourceBeatRoles
-          ? verifyBeatMapping(candidate, beatMapping, sourceBeatRoles)
+          ? verifyBeatMapping(scored, beatMapping, sourceBeatRoles)
           : null;
 
       const failures = [
         !originality.pass && "originality",
         !fidelity.pass && "fidelity",
-        spec && !spec.pass && "platform spec",
+        specReport && !specReport.pass && "platform spec",
         beats && !beats.pass && "beat mapping",
       ].filter(Boolean);
 
@@ -175,15 +212,18 @@ export function registerGuardTools(server: McpServer): void {
         failing: failures,
         // Both axes in one line, because the shape of the pair is the signal.
         summary: `originality ${originality.score}/100 · fidelity ${fidelity.score}/100${
-          spec ? ` · spec ${spec.pass ? "ok" : "off-spec"}` : ""
+          specReport ? ` · spec ${specReport.pass ? "ok" : "off-spec"}` : ""
         }`,
         nextStep:
           failures.length === 0
             ? "All guards pass. Safe to present and save."
             : "Revise and check again. Details below name exactly what to change.",
+        // What was actually measured, so a surprising score can be explained
+        // rather than argued with.
+        scoredText: scored,
         originality,
         fidelity,
-        spec,
+        spec: specReport,
         beatMapping: beats,
       });
     },

@@ -266,6 +266,26 @@ export const ASPECT_RATIOS = [
   ),
 ] as [AspectRatioT, ...AspectRatioT[]];
 
+/**
+ * How the fidelity guard should read this format.
+ *
+ * A carousel holds ten cards and a thread twelve posts, so a longer source
+ * cannot be matched item for item however well it is written. Handing the guard
+ * the ceiling turns an unclearable finding into an accurate one.
+ */
+export function fidelityOptionsFor(spec: PlatformSpecT | FormatSpecT): {
+  maxListItems?: number;
+  expectsTerminalCta?: boolean;
+} {
+  const repeated = spec.fields.find((f) => f.repeat)?.repeat?.max;
+  const grouped = spec.groups?.[0]?.max;
+
+  return {
+    maxListItems: grouped ?? repeated,
+    expectsTerminalCta: spec.expectsTerminalCta,
+  };
+}
+
 /** A specific format, falling back to the platform's default. */
 export function getFormat(
   platform: string | undefined | null,

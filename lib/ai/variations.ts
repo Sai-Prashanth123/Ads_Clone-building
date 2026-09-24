@@ -18,7 +18,12 @@ import {
 } from "../originality";
 import { withModelFallback } from "./retry";
 import type { SourcePost } from "../x/types";
-import { PLATFORMS, fieldsToText, type PlatformSpec } from "../platforms";
+import {
+  fidelityOptionsFor,
+  fieldsToText,
+  PLATFORMS,
+  type PlatformSpec,
+} from "../platforms";
 import { validateAgainstSpec, type SpecReport } from "../platforms/validate";
 import { checkFidelity, type FidelityReport } from "../fidelity";
 import { describeOverlong, findOverlong, overlongNotes } from "./overlong";
@@ -66,7 +71,7 @@ function normalise(
     originality: checkOriginality(text, sourceText),
     // Originality alone cannot tell a faithful rewrite from a draft that
     // wandered off into a different ad. This is the second half of the claim.
-    fidelity: checkFidelity(text, sourceText),
+    fidelity: checkFidelity(text, sourceText, fidelityOptionsFor(platform)),
     spec: validateAgainstSpec(platform, raw.copy),
     regenerated: false,
   };

@@ -3,6 +3,7 @@ import {
   allFormats,
   aspectDimensions,
   ASPECT_RATIOS,
+  fidelityOptionsFor,
   fieldsToText,
   getFormat,
   PLATFORMS,
@@ -196,5 +197,28 @@ describe("renderable aspect ratios", () => {
     });
 
     expect(new Set(shapes).size).toBe(ASPECT_RATIOS.length);
+  });
+});
+
+describe("what each format tells the fidelity guard", () => {
+  it("gives a carousel its card ceiling and its terminal CTA", () => {
+    const o = fidelityOptionsFor(getFormat("linkedin", "carousel"));
+    expect(o.maxListItems).toBe(10);
+    expect(o.expectsTerminalCta).toBe(true);
+  });
+
+  it("gives a thread its post ceiling and no CTA expectation", () => {
+    const o = fidelityOptionsFor(getFormat("x", "thread"));
+    expect(o.maxListItems).toBe(12);
+    expect(o.expectsTerminalCta).toBeUndefined();
+  });
+
+  it("reads a repeated field's ceiling when there is no group", () => {
+    // Google's RSA repeats one field 15 times rather than grouping records.
+    expect(fidelityOptionsFor(getFormat("google", "search")).maxListItems).toBe(15);
+  });
+
+  it("caps nothing for a single free-form body", () => {
+    expect(fidelityOptionsFor(getFormat("x", "post")).maxListItems).toBeUndefined();
   });
 });

@@ -242,3 +242,85 @@ describe("closing-move equivalence", () => {
     expect(report.drifted.join(" ")).toContain("ends on");
   });
 });
+
+describe("what the target format makes impossible", () => {
+  /* A carousel holds ten cards. Cloning a 36-item listicle into one loses 26
+   * items however well it is written, and scoring against 36 reported a drift
+   * the writer could never clear. An unclearable finding is worse than none:
+   * it teaches the reader to ignore the report. */
+  const longList = [
+    "36 ways to compete with a giant:",
+    "",
+    ...Array.from({ length: 36 }, (_, i) => `- Tactic number ${i + 1} goes here`),
+    "",
+    "Link below.",
+  ].join("\n");
+
+  const tenCards = [
+    "10 moves for a small team against an incumbent:",
+    "",
+    ...Array.from({ length: 10 }, (_, i) => `- Fresh move ${i + 1} written anew`),
+    "",
+    "Details in the comments.",
+  ].join("\n");
+
+  it("penalises a ten-item clone when nothing said the format caps it", () => {
+    const uncapped = checkFidelity(tenCards, longList);
+    const listShape = uncapped.dimensions.find((d) => d.dimension === "list shape")!;
+
+    expect(listShape.match).toBeLessThan(0.85);
+  });
+
+  it("stops penalising it once the ceiling is known", () => {
+    const capped = checkFidelity(tenCards, longList, { maxListItems: 10 });
+    const listShape = capped.dimensions.find((d) => d.dimension === "list shape")!;
+
+    expect(listShape.match).toBeGreaterThan(0.95);
+    expect(capped.score).toBeGreaterThan(checkFidelity(tenCards, longList).score);
+  });
+
+  it("says the format is the constraint rather than blaming the draft", () => {
+    const capped = checkFidelity(tenCards, longList, { maxListItems: 10 });
+    const notes = capped.drifted.join(" ");
+
+    expect(notes).toContain("this format holds 10");
+    expect(notes).toContain("not a fault in the draft");
+  });
+
+  it("still penalises a clone that is short of the achievable ceiling", () => {
+    const threeCards = [
+      "3 moves for a small team:",
+      "",
+      "- Fresh move one written anew",
+      "- Fresh move two written anew",
+      "- Fresh move three written anew",
+      "",
+      "Details in the comments.",
+    ].join("\n");
+
+    const capped = checkFidelity(threeCards, longList, { maxListItems: 10 });
+    const listShape = capped.dimensions.find((d) => d.dimension === "list shape")!;
+
+    // Ten were available and three were written — that IS the draft's doing.
+    expect(listShape.match).toBeLessThan(0.85);
+    expect(capped.drifted.join(" ")).not.toContain("not a fault in the draft");
+  });
+
+  /* The carousel's last card carries the button — the format says so in its own
+   * hint. Marking it as drift against a source that ended on a sign-off pushed
+   * a rewrite toward worse copy to satisfy the measurement. */
+  it("accepts a terminal CTA when the format requires one", () => {
+    const endsOnSignOff = "We shipped 3 features.\n\n- One\n- Two\n\nAnyway.";
+    const endsOnCta = "We shipped 9 features.\n\n- Alpha\n- Beta\n\nLearn more";
+
+    expect(checkFidelity(endsOnCta, endsOnSignOff).drifted.join(" ")).toContain(
+      "ends on",
+    );
+
+    expect(
+      checkFidelity(endsOnCta, endsOnSignOff, { expectsTerminalCta: true }).drifted.join(
+        " ",
+      ),
+    ).not.toContain("ends on");
+  });
+});

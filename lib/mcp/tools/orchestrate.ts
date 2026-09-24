@@ -12,6 +12,7 @@ import { engagementRate } from "../../x/types";
 import { DECONSTRUCT_SYSTEM, VARIATIONS_SYSTEM } from "../../ai/prompts";
 import { angles, DEFAULT_ANGLES } from "../../ai/schemas";
 import {
+  fidelityOptionsFor,
   fieldsToText,
   generationMax,
   getFormat,
@@ -276,7 +277,11 @@ export function judge(draft: Draft, state: AutoCloneState): Verdict[] {
   return draft.variations.map((v) => {
     const text = fieldsToText(spec, v.copy);
     const originality = checkOriginality(text, state.source.text);
-    const fidelity = checkFidelity(text, state.source.text);
+    const fidelity = checkFidelity(
+      text,
+      state.source.text,
+      fidelityOptionsFor(spec),
+    );
     const specReport = validateAgainstSpec(spec, v.copy);
 
     const haystack = text.toLowerCase();

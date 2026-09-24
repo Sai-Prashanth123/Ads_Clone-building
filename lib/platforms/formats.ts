@@ -109,6 +109,8 @@ function carousel(args: {
     aspectRatios: args.aspectRatios,
     defaultAspect: args.defaultAspect,
     ctaOptions: args.ctaOptions,
+    // The last card carries the CTA — see the group hint above.
+    expectsTerminalCta: true,
   };
 }
 

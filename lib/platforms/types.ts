@@ -53,6 +53,14 @@ export type FormatSpec = {
   aspectRatios: AspectRatio[];
   defaultAspect: AspectRatio;
   ctaOptions?: string[];
+  /**
+   * The last slot is conventionally a call to action.
+   *
+   * True for carousels: the final card carries the button, which the group hint
+   * already says in prose. The fidelity guard needs it as data, or it marks the
+   * correct ending as drift against a source that closed some other way.
+   */
+  expectsTerminalCta?: boolean;
 };
 
 export type PlatformSpec = {
@@ -72,6 +80,7 @@ export type PlatformSpec = {
   aspectRatios: AspectRatio[];
   defaultAspect: AspectRatio;
   ctaOptions?: string[];
+  expectsTerminalCta?: boolean;
 };
 
 /** Build a platform from its formats, mirroring the first onto the top level. */
@@ -91,5 +100,6 @@ export function definePlatform(args: {
     aspectRatios: primary.aspectRatios,
     defaultAspect: primary.defaultAspect,
     ctaOptions: primary.ctaOptions,
+    expectsTerminalCta: primary.expectsTerminalCta,
   };
 }

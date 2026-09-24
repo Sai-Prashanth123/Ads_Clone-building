@@ -74,6 +74,31 @@ export type FidelityReport = {
 /** Below this the clone has stopped being the same ad. */
 export const FIDELITY_THRESHOLD = 0.6;
 
+export type FidelityOptions = {
+  /**
+   * The most list items the target format can actually carry.
+   *
+   * A carousel allows ten cards. Cloning a 36-item listicle into one therefore
+   * loses 26 items no matter how well it is written — and scoring against 36
+   * reported a drift the writer could never clear. An unclearable finding is
+   * worse than none: it trains the reader to ignore the report, which is the
+   * one failure a guard cannot recover from.
+   *
+   * So the target is the achievable count, and the drift line says the format
+   * is why rather than blaming the draft. Same principle as the truncation
+   * point beating length fidelity: a platform limit is not a writing mistake.
+   */
+  maxListItems?: number;
+  /**
+   * True when the target format's last slot is conventionally a CTA.
+   *
+   * A carousel's final card carries the button — that is the format, stated in
+   * the spec's own hint. Reporting it as drift against a source that ended on a
+   * sign-off pushed a rewrite toward worse copy to satisfy the measurement.
+   */
+  expectsTerminalCta?: boolean;
+};
+
 /**
  * Closing moves that do the same job.
  *
@@ -231,9 +256,18 @@ function exactMatch(a: unknown, b: unknown): number {
 export function checkFidelity(
   clone: string,
   original: string,
+  options: FidelityOptions = {},
 ): FidelityReport {
   const s = fingerprint(original);
   const c = fingerprint(clone);
+
+  // What the format allows, not what the source had.
+  const targetItems =
+    options.maxListItems != null && s.bulletCount > 0
+      ? Math.min(s.bulletCount, options.maxListItems)
+      : s.bulletCount;
+
+  const cappedByFormat = targetItems < s.bulletCount;
 
   // Weighted because these are not equally diagnostic. The opening move and
   // the list shape are what make an ad recognisably the same ad; block counts
@@ -248,7 +282,12 @@ export function checkFidelity(
     },
     {
       dimension: "closing move",
-      match: closingMatch(s.closing, c.closing),
+      // A format whose last slot IS a button cannot be marked down for having
+      // one. That is the platform's choice, not the writer's.
+      match:
+        options.expectsTerminalCta && c.closing === "cta"
+          ? 1
+          : closingMatch(s.closing, c.closing),
       source: s.closing,
       clone: c.closing,
       weight: 0.1,
@@ -257,9 +296,11 @@ export function checkFidelity(
       dimension: "list shape",
       match:
         exactMatch(s.bulletStyle, c.bulletStyle) * 0.5 +
-        ratioMatch(s.bulletCount, c.bulletCount) * 0.3 +
+        ratioMatch(targetItems, c.bulletCount) * 0.3 +
         ratioMatch(s.bulletWords, c.bulletWords) * 0.2,
-      source: s.bulletStyle ? `${s.bulletStyle} ×${s.bulletCount}` : "none",
+      source: s.bulletStyle
+        ? `${s.bulletStyle} ×${s.bulletCount}${cappedByFormat ? ` (format allows ${targetItems})` : ""}`
+        : "none",
       clone: c.bulletStyle ? `${c.bulletStyle} ×${c.bulletCount}` : "none",
       weight: 0.2,
     },
@@ -314,6 +355,15 @@ export function checkFidelity(
       `The original is a ${s.bulletStyle} list of ${s.bulletCount} items; yours has no list. The scannable shape is doing the work.`,
     );
   }
+  /* Say plainly when the format is the constraint.
+   *
+   * Without this the report reads as a failure to fix, and there is nothing to
+   * fix — the writer is already at the ceiling. */
+  if (cappedByFormat && c.bulletCount >= targetItems) {
+    drifted.push(
+      `The original lists ${s.bulletCount} items and this format holds ${targetItems}. You are at the ceiling, so the remaining gap is the format's cost, not a fault in the draft — pick the strongest ${targetItems}.`,
+    );
+  }
   if (!s.bulletStyle && c.bulletStyle) {
     drifted.push(
       "The original is prose; yours is a bulleted list. That changes how it reads in feed.",
@@ -337,8 +387,13 @@ export function checkFidelity(
   if (s.emojiCount > 0 && c.emojiCount === 0) {
     drifted.push("The original uses emoji and yours uses none.");
   }
-  // Only a real change of move is drift — swapping a link for a button is not.
-  if (closingMatch(s.closing, c.closing) < 0.75) {
+  // Only a real change of move is drift — swapping a link for a button is not,
+  // and neither is a terminal CTA the format requires.
+  const closingIsFine =
+    (options.expectsTerminalCta && c.closing === "cta") ||
+    closingMatch(s.closing, c.closing) >= 0.75;
+
+  if (!closingIsFine) {
     drifted.push(
       `The original ends on ${CLOSING_PHRASE[s.closing]}; yours ends on ${CLOSING_PHRASE[c.closing]}.`,
     );
