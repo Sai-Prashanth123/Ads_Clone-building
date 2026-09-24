@@ -289,6 +289,26 @@ function objectPathOf(url: string): string | null {
   return at < 0 ? null : url.slice(at + marker.length).split("?")[0];
 }
 
+/**
+ * One saved run, by id.
+ *
+ * Read directly rather than by filtering a listing: the listing is capped, so
+ * scanning it made every record older than the most recent fifty unreachable —
+ * and silently, as "no saved ad with that id".
+ */
+export async function getSwipe(id: string): Promise<SavedSwipe | null> {
+  const { data, error } = await getDb()
+    .from("swipes")
+    .select(
+      "id, created_at, source_url, author_handle, author_name, original_text, original_media_url, engagement, dna, hook_type, platform, target_format, clones(*)",
+    )
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return (data as unknown as SavedSwipe) ?? null;
+}
+
 export async function deleteSwipe(id: string): Promise<void> {
   const db = getDb();
 

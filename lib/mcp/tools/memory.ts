@@ -1,13 +1,14 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { isSwipeFileEnabled, SWIPE_FILE_SETUP_HINT } from "../../db/client";
-import { deleteSwipe, listSwipes, saveSwipe } from "../../db/swipes";
+import { deleteSwipe, getSwipe, listSwipes, saveSwipe } from "../../db/swipes";
 import { buildPlaybook } from "../../analysis/playbook";
 import { describeError } from "../../ai/errors";
 import { adDnaSchema } from "../../ai/schemas";
 import { PLATFORM_IDS } from "../../platforms";
 import { fingerprint } from "../../fidelity";
 import { engagementRate } from "../../x/types";
+import { creativeBlocks } from "../creatives";
 import { fail, ok } from "../result";
 
 const PUBLIC_URL = "https://adclone-studio.onrender.com";
@@ -28,13 +29,11 @@ export function registerMemoryTools(server: McpServer): void {
       description: [
         "Persist the source ad, the framework you extracted, and the variations you wrote.",
         "",
-        "Save AFTER the guards pass. Include each variation's originality and spec reports so the record shows what was verified rather than what was hoped.",
+        "Save AFTER the guards pass, and include each variation's originality, fidelity and spec reports so the record shows what was verified rather than what was hoped.",
         "",
         "Attach creatives by passing each angle's `imageUrl` from generate_image. They are already stored; saving moves them under this record so deleting the swipe removes them too.",
         "",
-        "Include each variation's originality, fidelity and spec reports so the record shows what was verified rather than what was hoped.",
-        "",
-        `Saved runs appear at ${PUBLIC_URL}/library and feed get_playbook.`,
+        "The result says what went on the record. To SHOW it — the copy and the pictures together — call get_swipe afterwards rather than sending the reader to the library.",
       ].join("\n"),
       inputSchema: {
         post: z
@@ -128,10 +127,33 @@ export function registerMemoryTools(server: McpServer): void {
           format: args.format,
           images: args.images,
         });
+        /* Show what was saved, rather than pointing at a web page.
+         *
+         * This used to return an id and a link, which asks the reader to leave
+         * the conversation to see work that was just done in it. The copy is
+         * already in the transcript; what the reader wants confirmed is that it
+         * is now on the record, and with which scores. */
+        const saved = args.variations.map((v) => ({
+          angle: v.angle,
+          originality:
+            (v.originality as { score?: number } | undefined)?.score ?? null,
+          fidelity: (v.fidelity as { score?: number } | undefined)?.score ?? null,
+          creative: args.images?.[v.angle] ? "attached" : "none",
+          chars: v.text.length,
+        }));
+
+        const withCreative = saved.filter((s) => s.creative === "attached").length;
+
         return ok({
           id: result.id,
-          savedVariations: args.variations.length,
-          viewAt: `${PUBLIC_URL}/library`,
+          saved,
+          summary: `${args.variations.length} variation${
+            args.variations.length === 1 ? "" : "s"
+          } saved${withCreative ? ` with ${withCreative} creative${withCreative === 1 ? "" : "s"}` : ", no creatives attached"}.`,
+          // Present the copy and the pictures here with get_swipe, rather than
+          // sending the reader away to look at them.
+          nextStep: `Call get_swipe("${result.id}") to show the full record and its creatives inline.`,
+          alsoAt: `${PUBLIC_URL}/library`,
         });
       } catch (err) {
         return fail(describeError(err));
@@ -182,21 +204,42 @@ export function registerMemoryTools(server: McpServer): void {
   server.registerTool(
     "get_swipe",
     {
-      title: "Read one saved ad in full",
-      description:
-        "The complete record: source copy, extracted framework, every variation with its originality and spec reports, and any creative that was generated.",
-      inputSchema: { id: z.string() },
+      title: "Read one saved ad in full, creatives included",
+      description: [
+        "The complete record: source copy, extracted framework, every variation with its originality and fidelity reports, and each creative attached as an image you can look at.",
+        "",
+        "Use this to SHOW a saved run rather than linking to the library. The pictures come back as image blocks in the reply, so the reader sees the work where the work was done.",
+      ].join("\n"),
+      inputSchema: {
+        id: z.string(),
+        withCreatives: z
+          .boolean()
+          .default(true)
+          .describe("Set false for the record alone, when the images are noise."),
+      },
       annotations: { readOnlyHint: true },
     },
-    async ({ id }) => {
+    async ({ id, withCreatives }) => {
       const missing = requireSwipeFile();
       if (missing) return fail(missing);
 
       try {
-        const [swipe] = await listSwipes({ limit: 50 }).then((all) =>
-          all.filter((s) => s.id === id),
+        const swipe = await getSwipe(id);
+        if (!swipe) return fail(`No saved ad with id ${id}.`);
+
+        const base = ok(swipe);
+        if (!withCreatives) return base;
+
+        const blocks = await creativeBlocks(
+          (swipe.clones ?? []).map((c) => ({
+            label: `${c.angle}${c.image_prompt ? ` — ${c.image_prompt.slice(0, 120)}` : ""}`,
+            url: c.image_url,
+          })),
         );
-        return swipe ? ok(swipe) : fail(`No saved ad with id ${id}.`);
+
+        return blocks.length
+          ? { ...base, content: [...base.content, ...blocks] }
+          : base;
       } catch (err) {
         return fail(describeError(err));
       }
