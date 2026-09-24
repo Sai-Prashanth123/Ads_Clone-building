@@ -9,6 +9,7 @@ import { PLATFORM_IDS } from "../../platforms";
 import { fingerprint } from "../../fidelity";
 import { engagementRate } from "../../x/types";
 import { creativeBlocks } from "../creatives";
+import { presentSwipe } from "../present";
 import { fail, ok } from "../result";
 
 const PUBLIC_URL = "https://adclone-studio.onrender.com";
@@ -207,9 +208,9 @@ export function registerMemoryTools(server: McpServer): void {
     {
       title: "Read one saved ad in full, creatives included",
       description: [
-        "The complete record: source copy, extracted framework, every variation with its originality and fidelity reports, and each creative attached as an image you can look at.",
+        "The complete record, written out to be read: every variation's COPY in full, laid out as it would be posted, with its scores, and each creative attached as an image.",
         "",
-        "Use this to SHOW a saved run rather than linking to the library. The pictures come back as image blocks in the reply, so the reader sees the work where the work was done.",
+        "Use this to SHOW a saved run rather than linking to the library or summarising it. Present the copy as it comes back — the ads are the product and the scores are the receipt, so a table of numbers with the writing left out is the wrong way round.",
       ].join("\n"),
       inputSchema: {
         id: z.string(),
@@ -228,7 +229,17 @@ export function registerMemoryTools(server: McpServer): void {
         const swipe = await getSwipe(id);
         if (!swipe) return fail(`No saved ad with id ${id}.`);
 
-        const base = ok(swipe);
+        /* The ads first, as prose.
+         *
+         * Returning the row as JSON meant a host summarised it, so a finished
+         * run came back as a table of scores with the copy nowhere in the
+         * reply. The structured record rides along underneath for anything
+         * reading the output rather than the words. */
+        const base = {
+          content: [{ type: "text" as const, text: presentSwipe(swipe) }],
+          structuredContent: swipe as unknown as Record<string, unknown>,
+        };
+
         if (!withCreatives) return base;
 
         const blocks = await creativeBlocks(

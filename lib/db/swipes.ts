@@ -16,6 +16,8 @@ export type SavedClone = {
   fidelity: { score?: number; pass?: boolean; drifted?: string[] } | null;
   regenerated: boolean;
   target_format: string | null;
+  /** The platform-shaped copy, when the run was written for one. */
+  fields: Record<string, unknown> | null;
   beat_mapping: { role: string; line: string }[] | null;
 };
 

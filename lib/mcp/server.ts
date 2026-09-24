@@ -37,6 +37,8 @@ export const MCP_INSTRUCTIONS = [
   "",
   "Or call clone_ad_auto, which runs that whole loop itself: it asks you to write, measures the result, and comes back with exactly what failed until it passes. Nothing unverified reaches the caller. Use it when you want the finished answer; use the individual tools when you want to make the calls yourself.",
   "",
+  "SHOW THE WRITING. Every variation's copy in full, in the reply, as it would be posted — then the scores. A table of numbers with the ads left out is the wrong way round: the copy is the product and the score is the receipt. Same for the creatives: they come back as images, so put them in the answer rather than describing them or linking to them.",
+  "",
   "Three rules that matter:",
   "• Never present copy that has not passed the guards. They return arithmetic — you cannot assess character counts or n-gram overlap by eye, and a confident guess is worse than a measurement.",
   "• Never reproduce the source's wording. The guards will catch it, and catching it late wastes the run.",
