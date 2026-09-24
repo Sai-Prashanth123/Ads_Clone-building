@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { createImage } from "../../ai/image";
 import { describeError } from "../../ai/errors";
 import { getImageChoices, imageProviderLabel } from "../../ai/provider";
+import { ASPECT_RATIOS } from "../../platforms";
 import { fail, ok } from "../result";
 
 /**
@@ -35,7 +36,7 @@ export function registerCreativeTools(server: McpServer): void {
           .optional()
           .describe("What to avoid, comma separated."),
         model: z.string().optional().describe("From list_image_models."),
-        aspectRatio: z.enum(["16:9", "1:1", "4:5", "1.91:1"]).optional(),
+        aspectRatio: z.enum(ASPECT_RATIOS).optional(),
         referenceImageUrl: z
           .string()
           .optional()

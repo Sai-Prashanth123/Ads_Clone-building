@@ -1,6 +1,7 @@
 import { createImage } from "@/lib/ai/image";
 import { describeError } from "@/lib/ai/errors";
 import { imageProviderLabel } from "@/lib/ai/provider";
+import { ASPECT_RATIOS } from "@/lib/platforms";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -10,7 +11,7 @@ const bodySchema = z.object({
   prompt: z.string().min(4).max(4000),
   negatives: z.string().max(1000).optional(),
   model: z.string().optional(),
-  aspectRatio: z.enum(["16:9", "1:1", "4:5"]).optional(),
+  aspectRatio: z.enum(ASPECT_RATIOS).optional(),
   referenceImageUrl: z.string().url().optional(),
 });
 

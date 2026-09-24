@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { allFormats, fieldsToText, getFormat, PLATFORMS } from "./index";
+import {
+  allFormats,
+  aspectDimensions,
+  ASPECT_RATIOS,
+  fieldsToText,
+  getFormat,
+  PLATFORMS,
+} from "./index";
 import { buildVariationSchema } from "../ai/schemas";
 import { validateAgainstSpec } from "./validate";
 
@@ -146,5 +153,48 @@ describe("flattening for the guards", () => {
 
     expect(report.pass).toBe(false);
     expect(report.problems.join(" ")).toContain("Card 2 · Card headline");
+  });
+});
+
+describe("renderable aspect ratios", () => {
+  /* Two endpoints used to keep their own hardcoded copy of this list, and both
+   * had drifted: the MCP tool refused 9:16 so a Meta story could not render at
+   * its own ratio, and the web route refused 1.91:1 — the default for LinkedIn
+   * AND Google. Deriving it means adding a format is enough. */
+  it("covers every ratio any format asks for", () => {
+    for (const { platform, format } of allFormats()) {
+      for (const ratio of format.aspectRatios) {
+        expect(
+          ASPECT_RATIOS,
+          `${platform}/${format.id} wants ${ratio}`,
+        ).toContain(ratio);
+      }
+      expect(ASPECT_RATIOS).toContain(format.defaultAspect);
+    }
+  });
+
+  it("includes the two that were missing", () => {
+    expect(ASPECT_RATIOS).toContain("9:16");
+    expect(ASPECT_RATIOS).toContain("1.91:1");
+  });
+
+  it("gives every ratio real pixel dimensions", () => {
+    for (const ratio of ASPECT_RATIOS) {
+      const { width, height } = aspectDimensions(ratio);
+      expect(width).toBeGreaterThan(0);
+      expect(height).toBeGreaterThan(0);
+    }
+  });
+
+  /* 1.91:1 silently rendered as 16:9 for a while because the dimension table
+   * had no case for it and fell through to the default. Distinct ratios must
+   * produce distinct frames, or the fallback hides the omission. */
+  it("does not collapse distinct ratios onto one frame", () => {
+    const shapes = ASPECT_RATIOS.map((r) => {
+      const { width, height } = aspectDimensions(r);
+      return `${width}x${height}`;
+    });
+
+    expect(new Set(shapes).size).toBe(ASPECT_RATIOS.length);
   });
 });

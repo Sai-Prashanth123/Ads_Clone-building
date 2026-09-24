@@ -250,6 +250,22 @@ export const PLATFORMS: Record<PlatformIdT, PlatformSpecT> = {
 
 export const PLATFORM_IDS = Object.keys(PLATFORMS) as PlatformIdT[];
 
+/**
+ * Every aspect ratio any format asks for, derived rather than restated.
+ *
+ * Both render endpoints used to hardcode their own list. They drifted: the MCP
+ * tool refused 9:16 so a Meta story could not be rendered at its own ratio, and
+ * the web route refused 1.91:1 — the default for LinkedIn AND Google. Adding a
+ * format is now enough to make it renderable.
+ */
+export const ASPECT_RATIOS = [
+  ...new Set(
+    PLATFORM_IDS.flatMap((id) =>
+      PLATFORMS[id].formats.flatMap((f) => f.aspectRatios),
+    ),
+  ),
+] as [AspectRatioT, ...AspectRatioT[]];
+
 /** A specific format, falling back to the platform's default. */
 export function getFormat(
   platform: string | undefined | null,
