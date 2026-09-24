@@ -12,7 +12,10 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const inserted: { table: string; rows: unknown }[] = [];
 const deleted: { table: string; id: string }[] = [];
+const storageRemoved: string[] = [];
 let clonesInsertFails = false;
+let storedImageUrls: (string | null)[] = [];
+let moveFails = false;
 
 vi.mock("./client", () => ({
   CREATIVES_BUCKET: "creatives",
@@ -38,17 +41,28 @@ vi.mock("./client", () => ({
             return Promise.resolve({ error: null });
           },
         }),
+        select: () => ({
+          eq: () =>
+            Promise.resolve({
+              data: storedImageUrls.map((image_url) => ({ image_url })),
+              error: null,
+            }),
+        }),
       };
     },
     storage: {
       from: () => ({
         upload: () => Promise.resolve({ error: null }),
-        move: () => Promise.resolve({ error: null }),
+        move: () =>
+          Promise.resolve(moveFails ? { error: { message: "denied" } } : { error: null }),
         getPublicUrl: (p: string) => ({
           data: { publicUrl: `https://store.test/creatives/${p}` },
         }),
         list: () => Promise.resolve({ data: [] }),
-        remove: () => Promise.resolve({ error: null }),
+        remove: (paths: string[]) => {
+          storageRemoved.push(...paths);
+          return Promise.resolve({ error: null });
+        },
       }),
     },
   }),
@@ -56,7 +70,7 @@ vi.mock("./client", () => ({
   SWIPE_FILE_SETUP_HINT: "",
 }));
 
-const { saveSwipe } = await import("./swipes");
+const { saveSwipe, deleteSwipe } = await import("./swipes");
 
 const post = {
   id: "1",
@@ -78,7 +92,10 @@ const variation = (extra: Record<string, unknown> = {}) =>
 beforeEach(() => {
   inserted.length = 0;
   deleted.length = 0;
+  storageRemoved.length = 0;
+  storedImageUrls = [];
   clonesInsertFails = false;
+  moveFails = false;
 });
 
 describe("saving a run", () => {
@@ -190,5 +207,51 @@ describe("columns the caller never supplies", () => {
 
     expect(row.originality).toEqual({ score: 91, pass: true });
     expect(row.beat_mapping).toEqual([{ role: "hook", line: "a line" }]);
+  });
+});
+
+describe("deleting a run", () => {
+  /* A creative is staged before the swipe exists and moved into place on save.
+   * That move is an UPDATE on storage.objects, and with no policy for it the
+   * move failed silently — so the record kept pointing at the staged copy,
+   * which the folder sweep never looked at. Following the stored URLs means a
+   * failed move costs a tidy path rather than a leaked file. */
+  it("removes a creative the move never relocated", async () => {
+    storedImageUrls = [
+      "https://store.test/storage/v1/object/public/creatives/pending/abc.jpg",
+    ];
+
+    await deleteSwipe("swipe-1");
+
+    expect(storageRemoved).toContain("pending/abc.jpg");
+    expect(deleted).toEqual([{ table: "swipes", id: "swipe-1" }]);
+  });
+
+  it("ignores a URL that is not ours", async () => {
+    storedImageUrls = ["https://example.com/someone-elses.png", null];
+
+    await deleteSwipe("swipe-1");
+
+    expect(storageRemoved).toEqual([]);
+  });
+
+  it("keeps the creative when the move is refused, rather than losing it", async () => {
+    moveFails = true;
+
+    await saveSwipe({
+      post,
+      dna,
+      variations: [variation()],
+      images: {
+        "direct-swap": {
+          url: "https://store.test/creatives/pending/abc.png",
+        },
+      },
+    });
+
+    const row = (inserted.find((i) => i.table === "clones")!
+      .rows as Record<string, unknown>[])[0];
+
+    expect(String(row.image_url)).toContain("pending/abc.png");
   });
 });

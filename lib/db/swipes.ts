@@ -273,17 +273,42 @@ export async function listSwipes(opts: {
   return (data ?? []) as unknown as SavedSwipe[];
 }
 
+/** The object path inside our bucket, for a URL that points at it. */
+function objectPathOf(url: string): string | null {
+  const marker = `/${CREATIVES_BUCKET}/`;
+  const at = url.indexOf(marker);
+  return at < 0 ? null : url.slice(at + marker.length).split("?")[0];
+}
+
 export async function deleteSwipe(id: string): Promise<void> {
   const db = getDb();
 
-  // Object storage is not covered by the foreign key, so the creatives must be
-  // removed explicitly or they linger in the bucket forever. Storage first:
-  // an orphaned row is recoverable, an orphaned blob is invisible.
+  /* Object storage is not covered by the foreign key, so creatives must be
+   * removed explicitly or they linger in the bucket forever. Storage first: an
+   * orphaned row is recoverable, an orphaned blob is invisible.
+   *
+   * Two places to look. The swipe's own folder is where a creative ends up
+   * once it has been moved out of staging — and that move can fail, silently
+   * and for reasons outside this code, in which case the record still points
+   * at the staged copy. Following the stored URLs covers both, so a failed
+   * move costs a tidy path rather than a leaked file. */
+  const paths = new Set<string>();
+
   const { data: files } = await db.storage.from(CREATIVES_BUCKET).list(id);
-  if (files?.length) {
-    await db.storage
-      .from(CREATIVES_BUCKET)
-      .remove(files.map((f) => `${id}/${f.name}`));
+  for (const f of files ?? []) paths.add(`${id}/${f.name}`);
+
+  const { data: clones } = await db
+    .from("clones")
+    .select("image_url")
+    .eq("swipe_id", id);
+
+  for (const c of (clones ?? []) as { image_url: string | null }[]) {
+    const path = c.image_url ? objectPathOf(c.image_url) : null;
+    if (path) paths.add(path);
+  }
+
+  if (paths.size) {
+    await db.storage.from(CREATIVES_BUCKET).remove([...paths]);
   }
 
   // clones cascade via the foreign key.
