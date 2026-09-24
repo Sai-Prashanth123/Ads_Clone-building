@@ -26,6 +26,8 @@ export function registerCreativeTools(server: McpServer): void {
         "",
         "Text inside images renders badly past a few words. Specify at most one short line in quotes and describe the rest as non-legible texture.",
         "",
+        "NOT every model returns the frame you ask for. The default composes for the aspect but always writes a square file; pick one whose `honoursDimensions` is true when the file's shape matters, such as a 9:16 story. The result says which you got.",
+        "",
         "Call list_image_models to see what this deployment can render and which aspect ratios apply.",
       ].join("\n"),
       inputSchema: {
@@ -49,12 +51,24 @@ export function registerCreativeTools(server: McpServer): void {
         const image = await createImage(args);
         const base64 = image.dataUrl.split(",")[1] ?? "";
 
+        const aspect = args.aspectRatio ?? "16:9";
+        const choice = getImageChoices().find((c) => c.id === image.model);
+
+        /* Say when the frame is not the one that was asked for.
+         *
+         * The default model composes for the aspect and returns a square file
+         * regardless. That is fine for a feed image and wrong for a story, and
+         * the difference is invisible unless the result mentions it. */
+        const squareInstead =
+          choice?.honoursDimensions === false && aspect !== "1:1";
+
+        const line = squareInstead
+          ? `Rendered with ${image.model}, composed for ${aspect} but written as a square 1024x1024 file — this model cannot set dimensions. Re-render with a model whose honoursDimensions is true if the file has to be ${aspect}.`
+          : `Rendered with ${image.model} at ${aspect}.`;
+
         return {
           content: [
-            {
-              type: "text",
-              text: `Rendered with ${image.model} at ${args.aspectRatio ?? "16:9"}.`,
-            },
+            { type: "text", text: line },
             { type: "image", data: base64, mimeType: image.mediaType },
           ],
           // The data URL goes back too, so save_swipe can store the creative
@@ -62,6 +76,8 @@ export function registerCreativeTools(server: McpServer): void {
           structuredContent: {
             model: image.model,
             mediaType: image.mediaType,
+            requestedAspect: aspect,
+            frameMatchesAspect: !squareInstead,
             dataUrl: image.dataUrl,
           },
         };

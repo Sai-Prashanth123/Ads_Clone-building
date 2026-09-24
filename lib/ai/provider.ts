@@ -154,6 +154,15 @@ export type ImageChoice = {
   approxCost: string;
   /** Can take the original creative as input for true style transfer. */
   supportsImageInput: boolean;
+  /**
+   * Whether the model returns the frame it was asked for.
+   *
+   * flux-1-schnell composes for an aspect but always writes 1024x1024 — width
+   * and height are a hard 400 on that endpoint. Fine for a feed image, wrong
+   * for a 9:16 story, and invisible unless something says so. Undefined means
+   * unknown, which is treated as honouring it: the hosted providers do.
+   */
+  honoursDimensions?: boolean;
 };
 
 const IMAGE_CHOICES: Record<ProviderId, ImageChoice[]> = {

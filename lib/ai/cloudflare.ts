@@ -22,16 +22,18 @@ export const CLOUDFLARE_IMAGE_MODELS = [
   {
     id: FLUX,
     label: "flux-1-schnell",
-    note: "Apache-2.0 FLUX, free tier. Strongest composition and lighting. Ignores exact dimensions, so the aspect is steered through the prompt.",
+    note: "Apache-2.0 FLUX, free tier. Strongest composition and lighting. Ignores exact dimensions — it composes for the aspect you ask for but always returns a 1024x1024 file.",
     approxCost: "free · ~190/day",
     supportsImageInput: false,
+    honoursDimensions: false,
   },
   {
     id: SDXL,
     label: "sdxl",
-    note: "Honours exact width and height and accepts a negative prompt. Reach for it when the frame shape matters more than the composition.",
+    note: "Honours exact width and height and accepts a negative prompt. Reach for it when the frame SHAPE matters — a story or a carousel card that has to be the right size on disk.",
     approxCost: "free · ~190/day",
     supportsImageInput: false,
+    honoursDimensions: true,
   },
 ] as const;
 
