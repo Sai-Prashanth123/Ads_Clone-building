@@ -7,7 +7,7 @@ import {
   type ImageChoice,
 } from "./provider";
 import { generateCloudflareImage } from "./cloudflare";
-import type { AspectRatio } from "./models";
+import type { AspectRatio } from "../platforms";
 
 export type GeneratedImage = {
   /** data: URL, ready for <img src> and for download. */

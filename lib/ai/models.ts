@@ -67,4 +67,6 @@ export const ASPECT_RATIOS = [
   { id: "4:5", label: "4:5", note: "Tall mobile" },
 ] as const;
 
-export type AspectRatio = (typeof ASPECT_RATIOS)[number]["id"];
+// The canonical type lives with the platform specs, which is what decides
+// which ratios are even offered.
+export type { AspectRatio } from "../platforms";

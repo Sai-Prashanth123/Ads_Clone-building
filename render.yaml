@@ -43,6 +43,12 @@ services:
       - key: CLOUDFLARE_API_TOKEN
         sync: false
 
+      # --- MCP endpoint --------------------------------------------------
+      # Bearer token for /mcp. Without it the endpoint refuses every request,
+      # which is the correct failure for a server that can delete data.
+      - key: MCP_AUTH_TOKEN
+        sync: false
+
       # --- Swipe file (optional; the studio runs without it) ------------
       - key: SUPABASE_URL
         sync: false

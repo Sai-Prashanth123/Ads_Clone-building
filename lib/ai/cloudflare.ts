@@ -1,4 +1,5 @@
 import { ActionableError } from "./errors";
+import { aspectDimensions } from "../platforms";
 
 /**
  * Cloudflare Workers AI — image generation.
@@ -41,18 +42,6 @@ export function cloudflareConfigured(): boolean {
   );
 }
 
-/** SDXL caps at 1024 on each side and wants multiples of 8. */
-function dimensions(aspectRatio: string): { width: number; height: number } {
-  switch (aspectRatio) {
-    case "1:1":
-      return { width: 1024, height: 1024 };
-    case "4:5":
-      return { width: 832, height: 1024 };
-    case "16:9":
-    default:
-      return { width: 1024, height: 576 };
-  }
-}
 
 /**
  * flux-1-schnell takes only `prompt` and `steps` — passing width/height is a
@@ -64,6 +53,10 @@ function aspectPhrase(aspectRatio: string): string {
       return "Square 1:1 composition.";
     case "4:5":
       return "Vertical 4:5 portrait composition.";
+    case "1.91:1":
+      // LinkedIn and Google both default to this, so omitting it silently
+      // produced 16:9 creative for two of the four platforms.
+      return "Wide 1.91:1 landscape composition, banner framing.";
     case "16:9":
     default:
       return "Wide 16:9 landscape composition, cinematic framing.";
@@ -136,7 +129,7 @@ export async function generateCloudflareImage(args: {
     ? {
         prompt: args.prompt,
         ...(args.negativePrompt ? { negative_prompt: args.negativePrompt } : {}),
-        ...dimensions(args.aspectRatio),
+        ...aspectDimensions(args.aspectRatio as "16:9"),
         num_steps: 20,
       }
     : {

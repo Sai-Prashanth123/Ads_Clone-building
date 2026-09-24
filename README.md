@@ -66,6 +66,64 @@ $200/mo X API tier.
 
 ---
 
+---
+
+## Use it from Claude or ChatGPT (MCP)
+
+The studio is also an **MCP server**, and that inverts the architecture: the
+host model reads the ad, extracts the framework and writes the copy, while this
+server does what a language model cannot do reliably — fetching, counting
+characters, measuring text similarity, rendering images, and remembering.
+
+No Gemini key is needed for that path. The intelligence is the one you are
+already talking to.
+
+- **Endpoint:** `https://adclone-studio.onrender.com/mcp`
+- **Auth:** bearer token, from `MCP_AUTH_TOKEN`
+
+**Claude** — Settings → Connectors → Add custom connector. Paste the URL and
+the bearer token.
+
+**ChatGPT** — Settings → Connectors → **Developer mode**, then add the URL and
+token. Developer mode is what permits arbitrary tools. The server also exposes
+`search` and `fetch` in ChatGPT's fixed contract, so it works in Deep Research.
+
+**Claude Code** — `claude mcp add --transport http adclone <url>` with an
+`Authorization: Bearer …` header.
+
+### What it exposes
+
+**Guards** — the reason this is worth wiring up. `check_originality`,
+`check_convergence` and `validate_ad` return arithmetic, not opinions. A model
+cannot count characters or measure n-gram overlap against a 2,000-word source
+by eye; it will produce a confident number that is wrong. And because the host
+can call them repeatedly, it gets a loop the server-side pipeline never had:
+write, measure, revise, measure again.
+
+**Source** — `fetch_ad` returns the copy plus the creative as an image block
+the host reads itself. `fetch_ads` for a set.
+
+**Creative** — `generate_image`, on Cloudflare's free FLUX tier.
+
+**Memory** — `save_swipe`, `list_swipes`, `get_swipe`, `delete_swipe`,
+`get_playbook`. Both front doors write the same data, so anything saved from a
+chat shows up at `/library`.
+
+**Batch** — `create_batch` and friends, only when `GOOGLE_GENERATIVE_AI_API_KEY`
+is set. Unattended runs outlive a conversation, so they still need a
+server-side model; without the key those tools say so and point at the
+host-driven path rather than failing obscurely.
+
+**Prompts** — `clone_ad` runs the whole sequence. `deconstruct_ad` and
+`write_variations` carry the craft instructions from the server-side pipeline,
+where they were tuned against real output.
+
+Write and delete tools are annotated so both hosts confirm before acting. With
+no token configured the endpoint refuses every request rather than falling
+open — the failure that matters for a server that can delete your swipe file.
+
+---
+
 ## Where the post data comes from
 
 Three adapters, first success wins, then a manual floor:
