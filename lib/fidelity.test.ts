@@ -1,0 +1,244 @@
+import { describe, expect, it } from "vitest";
+import { checkFidelity, fingerprint, verifyBeatMapping } from "./fidelity";
+import { checkOriginality } from "./originality";
+
+const ORIGINAL = `Stop wasting 4 hours a day on manual data entry.
+
+Our AI tool automates your spreadsheets in 1 click. 👇
+
+- Connect your source
+- Pick a template
+- Watch the rows fill themselves
+
+Try it free for 14 days.`;
+
+/** Same machine, different words — what a good clone looks like. */
+const FAITHFUL = `Still losing half your workday to tedious typing?
+
+Automation handles your rows and columns in 2 seconds. 🚀
+
+- Link whichever system holds your records
+- Choose a layout
+- Let the cells populate on their own
+
+Start your 30-day trial today.`;
+
+/** Passes originality easily, but is not the same ad at all. */
+const DRIFTED = `We roast single-origin beans in small batches.
+
+Every bag is shipped the morning after roasting, which means the coffee
+reaching your kitchen is fresher than anything a supermarket shelf can
+offer, and our subscribers tell us the difference is unmistakable.`;
+
+describe("fingerprint", () => {
+  it("reads the structural shape of an ad", () => {
+    const f = fingerprint(ORIGINAL);
+    expect(f.opening).toBe("number");
+    expect(f.bulletStyle).toBe("-");
+    expect(f.bulletCount).toBe(3);
+    expect(f.emojiCount).toBeGreaterThan(0);
+    expect(f.closing).toBe("cta");
+  });
+
+  it("classifies opening moves", () => {
+    expect(fingerprint("Why is your CAC rising?").opening).toBe("question");
+    expect(fingerprint("Stop guessing at pricing.").opening).toBe("negation");
+    expect(fingerprint('"We tripled revenue" — a real customer').opening).toBe("quote");
+    expect(fingerprint("Our platform helps teams ship.").opening).toBe("declarative");
+  });
+
+  it("does not throw on empty or whitespace input", () => {
+    expect(() => fingerprint("")).not.toThrow();
+    expect(() => fingerprint("   \n  ")).not.toThrow();
+  });
+
+  /* Most social ads point at a link without pasting one. Reading "Link below."
+   * as no closing move made the closing dimension disagree with the source on
+   * ads that in fact ended the same way — a false drift report, which is worse
+   * than none, because it sends the model to rewrite something that was right. */
+  it("recognises a link closer that contains no link", () => {
+    expect(fingerprint("Full breakdown, no email needed. Link below.").closing).toBe(
+      "link",
+    );
+    expect(fingerprint("Details in the comments.").closing).toBe("link");
+    expect(fingerprint("The whole teardown is at https://example.com/x").closing).toBe(
+      "link",
+    );
+  });
+
+  it("classifies the other closing moves", () => {
+    expect(fingerprint("The teardown is free. Grab it here.").closing).toBe("cta");
+    expect(fingerprint("Drop a comment and I will send it.").closing).toBe("cta");
+    expect(fingerprint("That is it.").closing).toBe("sign-off");
+    expect(
+      fingerprint("We rebuilt ours and conversions doubled the following quarter.")
+        .closing,
+    ).toBe("none");
+  });
+});
+
+describe("checkFidelity", () => {
+  it("passes a faithful rewrite", () => {
+    const report = checkFidelity(FAITHFUL, ORIGINAL);
+    expect(report.pass).toBe(true);
+    expect(report.score).toBeGreaterThan(70);
+  });
+
+  it("catches drift that the originality guard waves through", () => {
+    // THE case nothing caught before this guard existed. Unrelated copy is
+    // maximally "original" — and not a clone of anything.
+    expect(checkOriginality(DRIFTED, ORIGINAL).pass).toBe(true);
+
+    const report = checkFidelity(DRIFTED, ORIGINAL);
+    expect(report.pass).toBe(false);
+    expect(report.drifted.length).toBeGreaterThan(0);
+  });
+
+  it("scores a verbatim copy as maximally faithful", () => {
+    // Fidelity and originality are opposite axes: this passes one and fails
+    // the other, which is why both verdicts have to be read together.
+    const report = checkFidelity(ORIGINAL, ORIGINAL);
+    expect(report.score).toBe(100);
+    expect(checkOriginality(ORIGINAL, ORIGINAL).pass).toBe(false);
+  });
+
+  it("names the drift specifically enough to act on", () => {
+    const prose = `Why does data entry still take so long?
+
+Our platform removes the manual work entirely and gives your team back
+the better part of every afternoon.`;
+
+    const report = checkFidelity(prose, ORIGINAL);
+    expect(report.drifted.join(" ")).toMatch(/list/i);
+    expect(report.drifted.join(" ")).toMatch(/opens/i);
+  });
+
+  it("flags a lost list even when the words are fine", () => {
+    const noList = `Stop wasting 4 hours a day on data entry.
+
+Connect a source, pick a template, and the rows fill themselves.
+
+Try it free for 14 days.`;
+
+    const report = checkFidelity(noList, ORIGINAL);
+    expect(report.dimensions.find((d) => d.dimension === "list shape")!.match)
+      .toBeLessThan(0.6);
+  });
+
+  it("notices when specific numbers disappear", () => {
+    const vague = `Stop wasting most of your day on manual data entry.
+
+Our AI tool automates your spreadsheets instantly. 👇
+
+- Connect your source
+- Pick a template
+- Watch the rows fill themselves
+
+Try it free for a couple of weeks.`;
+
+    const report = checkFidelity(vague, ORIGINAL);
+    expect(report.drifted.join(" ")).toMatch(/numbers/i);
+  });
+});
+
+describe("verifyBeatMapping", () => {
+  const beats = ["hook", "mechanism", "cta"];
+
+  it("accepts a mapping whose lines really are in the copy", () => {
+    const result = verifyBeatMapping(
+      FAITHFUL,
+      [
+        { role: "hook", line: "Still losing half your workday to tedious typing?" },
+        { role: "cta", line: "Start your 30-day trial today." },
+      ],
+      beats,
+    );
+    expect(result.pass).toBe(true);
+  });
+
+  it("catches a mapping that describes text never written", () => {
+    // The failure the old self-reported receipt could not detect.
+    const result = verifyBeatMapping(
+      FAITHFUL,
+      [{ role: "hook", line: "A line that appears nowhere in the ad" }],
+      beats,
+    );
+    expect(result.pass).toBe(false);
+    expect(result.missing).toHaveLength(1);
+    expect(result.problems[0]).toMatch(/do not appear/);
+  });
+
+  it("catches beats claimed out of the original's order", () => {
+    const result = verifyBeatMapping(
+      FAITHFUL,
+      [
+        { role: "cta", line: "Start your 30-day trial today." },
+        { role: "hook", line: "Still losing half your workday to tedious typing?" },
+      ],
+      beats,
+    );
+    expect(result.orderMatches).toBe(false);
+    expect(result.pass).toBe(false);
+  });
+
+  it("ignores punctuation and casing when matching lines", () => {
+    const result = verifyBeatMapping(
+      FAITHFUL,
+      [{ role: "hook", line: "still losing half your workday to tedious typing" }],
+      beats,
+    );
+    expect(result.pass).toBe(true);
+  });
+});
+
+describe("closing-move equivalence", () => {
+  /* A CTA button and a "link below" are the same move in different platform
+   * vocabularies. Scoring them as unrelated reported drift on the single most
+   * common correct adaptation there is, which trains the reader to ignore the
+   * report — the one failure a guard cannot recover from. */
+  const SOURCE = [
+    "I audited 250 landing pages.",
+    "",
+    "71% failed in five seconds.",
+    "",
+    "- Lead with the result",
+    "- Cut every adjective",
+    "",
+    "Full breakdown. Link below.",
+  ].join("\n");
+
+  const withButton = [
+    "We opened 300 checkout flows.",
+    "",
+    "82% lost the buyer at step two.",
+    "",
+    "- Ask for the card last",
+    "- Delete optional fields",
+    "",
+    "Learn more",
+  ].join("\n");
+
+  const withSignOff = [
+    "We opened 300 checkout flows.",
+    "",
+    "82% lost the buyer at step two.",
+    "",
+    "- Ask for the card last",
+    "- Delete optional fields",
+    "",
+    "Anyway.",
+  ].join("\n");
+
+  it("does not report drift when a link becomes a CTA button", () => {
+    const report = checkFidelity(withButton, SOURCE);
+
+    expect(report.drifted.join(" ")).not.toContain("ends on");
+    expect(report.pass).toBe(true);
+  });
+
+  it("still reports drift when the ad stops pointing anywhere", () => {
+    const report = checkFidelity(withSignOff, SOURCE);
+
+    expect(report.drifted.join(" ")).toContain("ends on");
+  });
+});

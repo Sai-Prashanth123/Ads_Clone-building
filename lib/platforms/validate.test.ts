@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generationMax, PLATFORMS } from "./index";
+import { generationMax, getFormat, PLATFORMS } from "./index";
 import { validateAgainstSpec } from "./validate";
 
 const chars = (n: number) => "x".repeat(n);
@@ -174,5 +174,84 @@ describe("generationMax", () => {
     expect(primary.max).toBe(3000);
     expect(primary.recommended).toBe(125);
     expect(primary.status).toBe("warn");
+  });
+});
+
+describe("validateAgainstSpec — repeating groups", () => {
+  const carousel = getFormat("meta", "carousel");
+
+  const card = (headline: string) => ({
+    headline,
+    imagePrompt: "A flat vector scene in teal and amber.",
+  });
+
+  const base = { introText: chars(100) };
+
+  it("accepts a carousel inside its card range", () => {
+    const report = validateAgainstSpec(carousel, {
+      ...base,
+      cards: [card("Card one"), card("Card two"), card("Card three")],
+    });
+    expect(report.pass).toBe(true);
+  });
+
+  it("fails below the minimum card count", () => {
+    const report = validateAgainstSpec(carousel, {
+      ...base,
+      cards: [card("Only one")],
+    });
+    expect(report.pass).toBe(false);
+    expect(report.problems.join(" ")).toContain("needs 2–10");
+  });
+
+  it("fails above the maximum card count", () => {
+    const report = validateAgainstSpec(carousel, {
+      ...base,
+      cards: Array.from({ length: 11 }, () => card("Card")),
+    });
+    expect(report.pass).toBe(false);
+  });
+
+  it("names the offending card by position", () => {
+    // "Card 2 headline is 6 over" is actionable; "a headline is too long"
+    // is not, which matters once a carousel has ten of them.
+    const report = validateAgainstSpec(carousel, {
+      ...base,
+      cards: [card("Fine"), card(chars(261)), card("Also fine")],
+    });
+    expect(report.pass).toBe(false);
+    expect(report.problems.join(" ")).toContain("Card 2");
+  });
+
+  it("validates thread posts the same way", () => {
+    const thread = getFormat("x", "thread");
+    const report = validateAgainstSpec(thread, {
+      hookPost: "Here is what nobody tells you about pricing:",
+      posts: [{ text: "First point." }, { text: chars(281) }],
+    });
+    expect(report.pass).toBe(false);
+    expect(report.problems.join(" ")).toContain("Post 2");
+  });
+});
+
+describe("validateAgainstSpec — Google RSA", () => {
+  const rsa = getFormat("google", "search");
+
+  it("accepts up to 15 headlines and 4 descriptions", () => {
+    const report = validateAgainstSpec(rsa, {
+      headlines: Array.from({ length: 15 }, (_, i) => `Headline ${i + 1}`),
+      descriptions: Array.from({ length: 4 }, () => chars(80)),
+      displayPath: "pricing",
+    });
+    expect(report.pass).toBe(true);
+  });
+
+  it("fails below the 3-headline minimum", () => {
+    const report = validateAgainstSpec(rsa, {
+      headlines: ["One", "Two"],
+      descriptions: [chars(80), chars(80)],
+      displayPath: "pricing",
+    });
+    expect(report.pass).toBe(false);
   });
 });

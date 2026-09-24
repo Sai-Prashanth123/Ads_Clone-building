@@ -26,7 +26,7 @@ export function VariationSkeleton({
 
   const note =
     stage === "rewriting"
-      ? "Too close to the source — rewriting"
+      ? "Did not clear the guards — rewriting"
       : stage === "checking"
         ? "Scoring against the original"
         : "Writing";

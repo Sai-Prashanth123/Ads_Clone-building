@@ -590,7 +590,7 @@ export default function Page() {
             <span className="t-label">
               {writingStage === "rewriting"
                 ? "the guard rejected a draft — going again"
-                : "three angles from the same DNA"}
+                : `${selectedAngles.length} angle${selectedAngles.length === 1 ? "" : "s"} from the same DNA`}
             </span>
           </div>
           <VariationSkeletonRow stage={writingStage} />

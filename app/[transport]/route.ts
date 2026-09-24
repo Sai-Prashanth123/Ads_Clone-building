@@ -5,6 +5,7 @@ import {
   registerEverything,
 } from "@/lib/mcp/server";
 import { mcpAuthConfigured, verifyMcpToken } from "@/lib/mcp/auth";
+import { autoCloneState } from "@/lib/mcp/state";
 
 /**
  * The MCP endpoint.
@@ -27,6 +28,19 @@ const handler = createMcpHandler(
     serverInfo: MCP_SERVER_INFO,
     instructions: MCP_INSTRUCTIONS,
     verboseLogs: process.env.NODE_ENV !== "production",
+
+    /*
+     * Multi-round-trip state is verified before any handler sees it.
+     *
+     * clone_ad_auto's revise loop keeps its round counter here, and the value
+     * travels through the client between rounds — so on the way back it is
+     * input the caller could have edited. Without this hook the counter is
+     * whatever the client says it is, and a client that keeps sending round 1
+     * gets an unbounded loop. The codec's verify throws on a bad signature,
+     * which the SDK answers as an invalid-params error, and hands the decoded
+     * payload to the handler so nothing decodes it twice.
+     */
+    requestState: { verify: autoCloneState().verify },
   },
 );
 

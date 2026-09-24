@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { generationMax, type PlatformSpec } from "../platforms";
+import {
+  generationMax,
+  type FieldSpec,
+  type FormatSpec,
+  type PlatformSpec,
+} from "../platforms";
 
 /* ------------------------------------------------------------------ *
  * Ad DNA — what the deconstruction pass extracts from the source post.
@@ -191,7 +196,17 @@ export const variationSchema = z.object({
     .describe("The complete post, ready to paste. Real line breaks."),
   /** Platform-shaped copy. Populated by buildVariationSchema; `text` stays as
    *  the flattened form so originality scoring and the library keep working. */
-  fields: z.record(z.string(), z.union([z.string(), z.array(z.string())])).optional(),
+  fields: z
+    .record(
+      z.string(),
+      z.union([
+        z.string(),
+        z.array(z.string()),
+        // Card groups: carousel cards, thread posts.
+        z.array(z.record(z.string(), z.string())),
+      ]),
+    )
+    .optional(),
   beatMapping: z
     .array(
       z.object({
@@ -222,6 +237,14 @@ export const variationSchema = z.object({
 });
 
 export type Variation = z.infer<typeof variationSchema>;
+
+/**
+ * Platform-shaped copy: plain fields, repeated fields, and card groups.
+ *
+ * One type shared by the generator, the guards and the UI, so a new format
+ * cannot introduce a shape that only two of the three understand.
+ */
+export type CopyFields = NonNullable<Variation["fields"]>;
 
 export const variationsSchema = z.object({
   variations: z.array(variationSchema).length(3),
@@ -273,32 +296,64 @@ export type CloneResult = z.infer<typeof cloneResultSchema>;
  * lib/platforms/validate.ts, because models miscount characters and an ad two
  * characters over is rejected by the platform, not by us.
  */
-export function buildVariationSchema(spec: PlatformSpec) {
+/**
+ * One field as the model sees it: a string capped near the truncation point,
+ * described with the limit AND the reason for the limit.
+ */
+function fieldSchema(field: FieldSpec): z.ZodTypeAny {
+  // Constrain generation near the truncation point rather than the
+  // platform's hard limit — see generationMax for why the gap matters.
+  const cap = generationMax(field);
+
+  const limit = field.recommended
+    ? `Write at most ${cap} characters. It truncates in feed at ${field.recommended}, so the decisive words must come first.`
+    : `Hard limit ${cap} characters.`;
+
+  const describe = `${field.label}. ${limit} ${field.hint}`;
+
+  return field.repeat
+    ? z
+        .array(z.string().max(cap))
+        .min(field.repeat.min)
+        .max(field.repeat.max)
+        .describe(describe)
+    : z.string().max(cap).describe(describe);
+}
+
+export function buildVariationSchema(spec: PlatformSpec | FormatSpec) {
   const copy: Record<string, z.ZodTypeAny> = {};
 
   for (const field of spec.fields) {
-    // Constrain generation near the truncation point rather than the
-    // platform's hard limit — see generationMax for why the gap matters.
-    const cap = generationMax(field);
-
-    const limit = field.recommended
-      ? `Write at most ${cap} characters. It truncates in feed at ${field.recommended}, so the decisive words must come first.`
-      : `Hard limit ${cap} characters.`;
-
-    const describe = `${field.label}. ${limit} ${field.hint}`;
-
-    copy[field.key] = field.repeat
-      ? z
-          .array(z.string().max(cap))
-          .min(field.repeat.min)
-          .max(field.repeat.max)
-          .describe(describe)
-      : z.string().max(cap).describe(describe);
+    copy[field.key] = fieldSchema(field);
   }
+
+  /* Groups become an array of card objects rather than N flattened keys.
+   *
+   * The shape is the instruction here: asked for `cards` as a list, a model
+   * writes cards that read in sequence. Asked for card1Headline…card5Headline
+   * it writes five headlines that each restate the whole ad, which is the
+   * failure a carousel cannot survive. */
+  for (const group of spec.groups ?? []) {
+    const item: Record<string, z.ZodTypeAny> = {};
+    for (const field of group.fields) {
+      item[field.key] = fieldSchema(field);
+    }
+
+    copy[group.key] = z
+      .array(z.object(item))
+      .min(group.min)
+      .max(group.max)
+      .describe(
+        `${group.label}: ${group.min}–${group.max} ${group.itemLabel.toLowerCase()}s, in reading order. ${group.hint}`,
+      );
+  }
+
+  const formatLabel = "formatName" in spec ? spec.formatName : spec.label;
+  const platformLabel = "formatName" in spec ? spec.label : "this platform";
 
   return z.object({
     angle: z.enum(angles),
-    copy: z.object(copy).describe(`Copy written for ${spec.label} ${spec.formatName}.`),
+    copy: z.object(copy).describe(`Copy written for ${platformLabel} ${formatLabel}.`),
     beatMapping: z
       .array(
         z.object({
@@ -317,7 +372,10 @@ export function buildVariationSchema(spec: PlatformSpec) {
   });
 }
 
-export function buildVariationsSchema(spec: PlatformSpec, count: number) {
+export function buildVariationsSchema(
+  spec: PlatformSpec | FormatSpec,
+  count: number,
+) {
   return z.object({
     variations: z.array(buildVariationSchema(spec)).length(count),
   });

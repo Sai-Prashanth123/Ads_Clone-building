@@ -1,5 +1,5 @@
 import type { SourcePost } from "../x/types";
-import type { PlatformSpec } from "../platforms";
+import { generationMax, type PlatformSpec } from "../platforms";
 import {
   ANGLE_LABELS,
   DEFAULT_ANGLES,
@@ -9,6 +9,7 @@ import {
   hasBrand,
 } from "./schemas";
 import { engagementRate } from "../x/types";
+import { fingerprint } from "../fidelity";
 
 export const DECONSTRUCT_SYSTEM = `You are a direct-response strategist who reverse-engineers high-performing social ads for a living.
 
@@ -104,8 +105,18 @@ export function variationsPrompt(args: {
   selectedAngles?: Angle[];
   /** Phrases a previous attempt lifted; must not reappear. */
   forbiddenPhrases?: string[];
+  /** Structural drift a previous attempt introduced, measured not judged. */
+  driftNotes?: string[];
 }): string {
-  const { post, dna, brand, platform, selectedAngles, forbiddenPhrases } = args;
+  const {
+    post,
+    dna,
+    brand,
+    platform,
+    selectedAngles,
+    forbiddenPhrases,
+    driftNotes,
+  } = args;
 
   // Only the angles this run asked for. Listing all eight when three were
   // requested invites the model to blend them.
@@ -138,6 +149,62 @@ export function variationsPrompt(args: {
         "No product was supplied. Keep each variation about the same concept as the original, but written from scratch — treat it as a rewrite brief, not a retarget.",
       ].join("\n");
 
+  /* The structural targets, measured from the source rather than described.
+   *
+   * The contract already says "keep the skeleton", and models still drop the
+   * bullet list and swap a link pointer for a hard CTA — because those are
+   * formatting habits, not content, and nothing in the brief named them. The
+   * fidelity guard measures exactly these dimensions afterwards, so naming them
+   * up front is the difference between a guard that reports drift every run and
+   * one that catches the runs that actually drifted. */
+  const shape = fingerprint(post.text);
+
+  /* How much room the body field actually has.
+   *
+   * "Keep the list" and "stay under 210 characters" are not both satisfiable
+   * for a three-item list under a hook and a proof, and a field over its cap
+   * fails the whole batch — every variation, not just the long one. So the
+   * instruction carries the arithmetic instead of leaving the model to
+   * discover the conflict: it is told how many items fit, and told to cut to
+   * that number rather than overrun. */
+  const body = platform?.fields.find((f) => !f.fixedChoice);
+  const budget = body ? generationMax(body) : null;
+
+  const itemCost = Math.max(12, Math.round(shape.bulletWords * 6) + 4);
+  // Roughly half the field goes to the hook, the proof and the closer.
+  const itemsThatFit =
+    budget != null ? Math.max(0, Math.floor((budget * 0.5) / itemCost)) : shape.bulletCount;
+  const keepItems = Math.min(shape.bulletCount, itemsThatFit);
+
+  const listLine = !shape.bulletStyle
+    ? "List: none. Do not add bullets the original did not have."
+    : keepItems >= shape.bulletCount
+      ? `List: ${shape.bulletCount} items with "${shape.bulletStyle}" bullets, about ${Math.round(shape.bulletWords)} words each. A scannable list IS the mechanism here — prose carrying the same points does not do the same job. Keep all ${shape.bulletCount}.`
+      : keepItems >= 2
+        ? `List: the original has ${shape.bulletCount} "${shape.bulletStyle}" bullet items. The target field only fits about ${keepItems}, so write exactly ${keepItems} — keep the scannable list, cut the weakest items. Do not convert them to prose, and do not exceed the field limit to fit more.`
+        : `List: the original has ${shape.bulletCount} "${shape.bulletStyle}" bullet items, and the target field is too small for a list at all. Drop it. Spend the characters on the hook instead — a truncated list is worse than none.`;
+  const shapeBlock = [
+    "",
+    "--- THE SHAPE TO MATCH (measured from the original) ---",
+    `Opening move: ${shape.opening}. Your first line must be the same kind of move.`,
+    `Closing move: ${shape.closing}. End the same way.`,
+    listLine,
+    `Sentence rhythm: ${shape.meanSentenceWords} words per sentence on average. Match it — punchy copy must stay punchy, and flowing copy must keep flowing.`,
+    shape.digitDensity > 1
+      ? `Numbers: the original is stat-led (${shape.digitDensity} digits per 100 words). Yours needs its own concrete figures, not vague equivalents.`
+      : "Numbers: the original does not lean on figures. Do not invent statistics.",
+    shape.emojiCount > 0
+      ? `Emoji: ${shape.emojiCount}${shape.emojiLeads ? ", with one in the opening line" : ""}. Match the count and the placement.`
+      : "Emoji: none. Do not add any.",
+    "",
+    "Opening move, closing move and emoji discipline cost no characters — match them even in the shortest field.",
+    "",
+    budget != null
+      ? `THE FIELD LIMIT OUTRANKS EVERYTHING HERE. ${body?.label}: ${budget} characters, not one more — over it, the whole batch is rejected and nothing about its structure matters. Where a target above will not fit, satisfy it partially and stay inside the limit.`
+      : "THE FIELD LIMIT OUTRANKS EVERYTHING HERE. A variation over its limit is rejected outright and nothing about its structure matters. Where a target will not fit, satisfy it partially and stay inside the limit.",
+    "--- END SHAPE ---",
+  ].join("\n");
+
   const forbiddenBlock = forbiddenPhrases?.length
     ? [
         "",
@@ -145,6 +212,17 @@ export function variationsPrompt(args: {
         ...forbiddenPhrases.map((p) => `• "${p}"`),
         "",
         "These exact sequences, and anything within one or two words of them, must not appear. Rewrite those lines from a different angle entirely.",
+        "--- END REJECTED ---",
+      ].join("\n")
+    : "";
+
+  const driftBlock = driftNotes?.length
+    ? [
+        "",
+        "--- REJECTED: YOUR PREVIOUS DRAFT LOST THE ORIGINAL'S SHAPE ---",
+        ...driftNotes.map((d) => `• ${d}`),
+        "",
+        "These are measurements, not opinions. Keep your new wording and fix the structure — a draft that reads well but is shaped differently is a different ad, not a clone of this one.",
         "--- END REJECTED ---",
       ].join("\n")
     : "";
@@ -185,9 +263,11 @@ export function variationsPrompt(args: {
     "--- EXTRACTED DNA ---",
     JSON.stringify(dna, null, 2),
     "--- END DNA ---",
+    shapeBlock,
     platformBlock,
     brandBlock,
     forbiddenBlock,
+    driftBlock,
     "",
     `PRODUCE EXACTLY THESE ${chosen.length} ANGLES, one variation each:`,
     angleSpec,

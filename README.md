@@ -12,7 +12,7 @@ they don't own). It works on the public post.
 ## What it does
 
 ```
-paste link → read post → deconstruct framework → write 3 angles → enforce originality → generate creative
+paste link → read post → deconstruct framework → write angles → enforce originality + fidelity → generate creative
 ```
 
 1. **Read the post.** Full text (including long-form), author, engagement, and the
@@ -21,11 +21,15 @@ paste link → read post → deconstruct framework → write 3 angles → enforc
    transferable machinery: hook type, beat structure, formatting habits, audience
    sophistication, persuasion triggers, proof type, CTA style, and the visual's
    layout / palette / subject / job.
-3. **Rewrite it.** Three angles — *direct swap*, *aggressive*, *minimalist* — that
-   keep the skeleton and change every surface. Each ships with a beat mapping
-   showing which original beat each new line serves.
-4. **Check it.** Every variation is scored against the original in plain code. See
-   [Originality](#originality) — this is the part that makes the promise real.
+3. **Rewrite it.** Three angles by default — *direct swap*, *aggressive*,
+   *minimalist*, from eight available — that keep the skeleton and change every
+   surface. The brief carries the source's measured shape, so "keep the skeleton"
+   is a set of targets rather than a hope. Each ships with a beat mapping showing
+   which original beat each new line serves.
+4. **Check it.** Every variation is scored against the original in plain code, on
+   both axes: is the wording new, and is it still the same ad. See
+   [Originality and fidelity](#originality-and-fidelity) — this is the part that
+   makes the promise real.
 5. **Render creative.** Per-variation image prompts, three models to choose from.
 
 Optionally turn on a **brand profile** and the framework gets retargeted onto *your*
@@ -93,21 +97,56 @@ token. Developer mode is what permits arbitrary tools. The server also exposes
 
 ### What it exposes
 
-**Guards** — the reason this is worth wiring up. `check_originality`,
-`check_convergence` and `validate_ad` return arithmetic, not opinions. A model
-cannot count characters or measure n-gram overlap against a 2,000-word source
-by eye; it will produce a confident number that is wrong. And because the host
-can call them repeatedly, it gets a loop the server-side pipeline never had:
-write, measure, revise, measure again.
+**Guards** — the reason this is worth wiring up. `check_clone` returns all
+three verdicts at once: originality against the source, structural fidelity to
+it, and every field against the platform's published limits. The individual
+tools (`check_originality`, `check_fidelity`, `check_convergence`,
+`validate_ad`) are there when you want one axis alone. They return arithmetic,
+not opinions — a model cannot count characters or measure n-gram overlap
+against a 2,000-word source by eye; it will produce a confident number that is
+wrong. And because the host can call them repeatedly, it gets a loop the
+server-side pipeline never had: write, measure, revise, measure again.
+
+Two axes, not one. Unrelated text scores 100% original and 0% faithful; a
+verbatim copy is the reverse. A good clone is high on both, and nothing else
+can tell a faithful rewrite from a draft that wandered into a different ad. See
+[Originality and fidelity](#originality-and-fidelity).
+
+**Orchestration** — `clone_ad_auto` runs the whole loop itself: fetch,
+deconstruct, write, measure, and revise with the exact failure quoted, up to
+three rounds, before returning anything. It generates by asking *your* model
+(MCP sampling), so no external key is involved and the writing is yours. Every
+other tool here is a capability the host may choose to use; this one makes the
+verify-and-revise loop structural, because the caller never sees copy that has
+not been measured.
+
+On a connection that cannot carry a sampling round it returns the complete
+brief instead — same instructions, same reference ads — and says so. Nothing
+half-works silently.
 
 **Source** — `fetch_ad` returns the copy plus the creative as an image block
-the host reads itself. `fetch_ads` for a set.
+the host reads itself. When a URL turns out to be blocked, it asks the operator
+to paste the copy mid-call rather than failing with advice. `fetch_ads` for a
+set.
+
+**Formats** — `get_platform_spec` lists every format each platform offers, not
+just the single image: X threads, LinkedIn and Meta carousels, Meta stories,
+Google responsive search ads. The choice matters more than the wording — a
+long-form listicle cloned into one post loses the list; cloned into a thread it
+keeps it. Carousels and threads come back as repeating card groups, and
+`validate_ad` reports off-spec copy by position ("Card 3 · Card headline is 6
+over").
 
 **Creative** — `generate_image`, on Cloudflare's free FLUX tier.
 
 **Memory** — `save_swipe`, `list_swipes`, `get_swipe`, `delete_swipe`,
-`get_playbook`. Both front doors write the same data, so anything saved from a
-chat shows up at `/library`.
+`get_playbook`, and `get_reference_ads`. The last one returns the
+best-performing saved ads of a given hook type, ranked by engagement *rate*
+rather than raw likes, as grounding to write against. The swipe file had been
+collecting that the whole time and generation never used it.
+
+Both front doors write the same data, so anything saved from a chat shows up at
+`/library`.
 
 **Batch** — `create_batch` and friends, only when `GOOGLE_GENERATIVE_AI_API_KEY`
 is set. Unattended runs outlive a conversation, so they still need a
@@ -121,6 +160,13 @@ where they were tuned against real output.
 Write and delete tools are annotated so both hosts confirm before acting. With
 no token configured the endpoint refuses every request rather than falling
 open — the failure that matters for a server that can delete your swipe file.
+
+`clone_ad_auto` carries its revise-loop state through the client between
+rounds, which means it comes back as input the caller could have edited. It is
+HMAC-signed and verified before any handler reads it: without that, a client
+could reset the round counter and loop forever. Set `MCP_STATE_SECRET` (or rely
+on `MCP_AUTH_TOKEN`) so the signature survives a restart and holds across more
+than one instance.
 
 ---
 
@@ -142,11 +188,13 @@ worth cloning.
 
 ---
 
-## Originality
+## Originality and fidelity
 
-"Same framework, different words" is the entire product promise, so it is enforced
-in deterministic code (`lib/originality.ts`), not left to the model's good
-intentions. No AI calls — cheap, repeatable, and unit-tested.
+"Same framework, different words" is the entire product promise. Both halves are
+enforced in deterministic code, not left to the model's good intentions. No AI
+calls — cheap, repeatable, and unit-tested.
+
+### Different words — `lib/originality.ts`
 
 Three independent signals, because each alone is easy to game:
 
@@ -160,21 +208,65 @@ The second signal is why there are three. A single lifted sentence buried in a
 long original dilutes to almost nothing under n-gram overlap — there's a test for
 exactly that case.
 
-Anything that fails is sent back to the model **once**, with its own lifted phrases
-quoted as explicit exclusions. The better of the two attempts wins per angle, so a
-retry can never make a variation worse. If it still fails, the card says so — the
-studio never silently ships near-copy.
+### Same framework — `lib/fidelity.ts`
+
+The other half went unmeasured for a long time. `beatMapping` looked like proof
+that the skeleton survived, but it was the model asserting it had kept the
+structure — an assertion stored in the database and rendered in the UI as a
+receipt, which nothing had ever checked.
+
+So the shape is fingerprinted from the text and compared:
+
+| Dimension | Weight | What it catches |
+|---|---|---|
+| opening move | 0.20 | a number hook becoming a question |
+| list shape | 0.20 | three scannable bullets becoming a paragraph |
+| sentence rhythm | 0.15 | punchy one-liners becoming flowing prose |
+| stat density | 0.15 | specific figures going vague |
+| closing move | 0.10 | an ad that stops pointing anywhere |
+| block rhythm | 0.10 | the line-break pattern collapsing |
+| emphasis | 0.10 | emoji and caps discipline drifting |
+
+Below 60/100 the clone has stopped being the same ad. `drifted[]` names what
+changed in words you can act on — *"the original opens with a number; yours
+opens with a question"* — because a score alone tells a writer nothing.
+
+The two axes pull against each other, which is the point. Unrelated text scores
+100% original and 0% faithful; a verbatim copy is the reverse. A good clone is
+high on **both**, and neither guard alone can tell a faithful rewrite from a
+draft that wandered into a different ad. There is a test that holds exactly
+that: copy the originality guard waves through, which the fidelity guard fails.
+
+Two judgement calls are worth knowing about. A CTA button and a "link below" are
+scored as the *same* closing move — which one an ad uses is decided by the
+platform, not the writer, and treating them as unrelated reported drift on the
+single most common correct adaptation there is. And the structural targets are
+measured from the source and handed to the model up front, including how many
+list items actually fit the target field: a three-item list and a 210-character
+LinkedIn intro are not both satisfiable, and the field limit always wins.
+
+### The loop
+
+Anything that fails either guard is sent back to the model **once**, with its own
+lifted phrases quoted as exclusions and its lost structure quoted as targets. The
+better of the two attempts wins per angle, where "better" is the pair — a rewrite
+that recovers the shape by borrowing the source's wording is worse than the draft
+it replaced. If it still fails, the card says so; the studio never silently ships
+near-copy or a clone that is not one.
+
+Over MCP the loop is unbounded: the host can measure and revise until it passes.
+`clone_ad_auto` makes it mandatory.
 
 ```bash
-npm test          # the guard's test suite
+npm test          # both guards' test suites
 ```
 
 ---
 
 ## Swipe file
 
-Every run can be saved — the source post, its extracted DNA, all three clones
-with their originality reports, and any creative you generated. `/library`
+Every run can be saved — the source post, its extracted DNA, every clone with
+its originality and fidelity reports, and any creative you generated. `/library`
 searches them by copy, author, or hook type as the collection grows.
 
 Backed by Supabase (Postgres + object storage). Set:
@@ -264,6 +356,7 @@ prompt to paste elsewhere instead of offering a button that would fail.
 app/
   page.tsx              the console
   library/page.tsx      the swipe file
+  [transport]/route.ts  the MCP endpoint (/mcp and /sse)
   api/clone/route.ts    NDJSON pipeline stream (fetch → dna → variations)
   api/image/route.ts    creative generation
   api/swipes/route.ts   swipe file save / list / delete
@@ -271,7 +364,13 @@ app/
 lib/
   x/                    url parsing, adapter chain, normalised SourcePost
   ai/                   models, zod schemas, prompts, deconstruct, variations, image
-  originality.ts        the guard  (+ originality.test.ts)
+  originality.ts        different words  (+ .test.ts)
+  fidelity.ts           same framework  (+ .test.ts)
+  platforms/            every platform's formats, limits and validator (+ tests)
+  mcp/
+    server.ts           registration and the host-facing instructions
+    state.ts            HMAC-signed multi-round-trip state
+    tools/              source, guards, creative, memory, batch, orchestrate
   db/                   supabase client, swipe file queries
 components/             primitives, OriginalCard, DnaPanel, VariationCard, BrandProfilePanel
 ```
@@ -286,6 +385,6 @@ call site.
 
 ## Scope
 
-Reads **public** posts and produces original derivative copy. The originality guard
-is the enforcement mechanism, and it's tested. Out of scope: reproducing anyone's
+Reads **public** posts and produces original derivative copy. The originality and
+fidelity guards are the enforcement mechanism, and both are tested. Out of scope: reproducing anyone's
 text verbatim, reusing their media, or generating creative that impersonates a brand.

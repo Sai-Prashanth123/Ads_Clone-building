@@ -13,7 +13,9 @@ export type SavedClone = {
   image_model: string | null;
   alt_text: string | null;
   originality: { score?: number; pass?: boolean } | null;
+  fidelity: { score?: number; pass?: boolean; drifted?: string[] } | null;
   regenerated: boolean;
+  target_format: string | null;
   beat_mapping: { role: string; line: string }[] | null;
 };
 
@@ -28,6 +30,8 @@ export type SavedSwipe = {
   engagement: Record<string, number> | null;
   dna: AdDna;
   hook_type: string | null;
+  platform: string | null;
+  target_format: string | null;
   clones: SavedClone[];
 };
 
@@ -85,6 +89,8 @@ export async function saveSwipe(args: {
   images?: Record<string, { dataUrl: string; prompt?: string }>;
   /** Which platform the copy was written for. */
   platform?: string;
+  /** Which of that platform's formats — carousel, thread, RSA, story. */
+  format?: string;
 }): Promise<{ id: string }> {
   const db = getDb();
 
@@ -101,6 +107,7 @@ export async function saveSwipe(args: {
       dna: args.dna,
       fetched_via: args.post.source,
       platform: args.platform ?? "x",
+      target_format: args.format ?? null,
     })
     .select("id")
     .single();
@@ -128,9 +135,11 @@ export async function saveSwipe(args: {
         alt_text: v.altText,
         rationale: v.rationale,
         originality: v.originality,
+        fidelity: v.fidelity ?? null,
         spec_report: v.spec ?? null,
         fields: v.fields ?? null,
         target_platform: args.platform ?? "x",
+        target_format: args.format ?? null,
         regenerated: v.regenerated,
         image_url: imageUrl,
       };
@@ -151,7 +160,7 @@ export async function listSwipes(opts: {
   let query = getDb()
     .from("swipes")
     .select(
-      "id, created_at, source_url, author_handle, author_name, original_text, original_media_url, engagement, dna, hook_type, clones(*)",
+      "id, created_at, source_url, author_handle, author_name, original_text, original_media_url, engagement, dna, hook_type, platform, target_format, clones(*)",
     )
     .order("created_at", { ascending: false })
     .limit(opts.limit ?? 50);

@@ -6,6 +6,8 @@ import { buildPlaybook } from "../../analysis/playbook";
 import { describeError } from "../../ai/errors";
 import { adDnaSchema } from "../../ai/schemas";
 import { PLATFORM_IDS } from "../../platforms";
+import { fingerprint } from "../../fidelity";
+import { engagementRate } from "../../x/types";
 import { fail, ok } from "../result";
 
 const PUBLIC_URL = "https://adclone-studio.onrender.com";
@@ -53,7 +55,15 @@ export function registerMemoryTools(server: McpServer): void {
               angle: z.string(),
               text: z.string(),
               fields: z
-                .record(z.string(), z.union([z.string(), z.array(z.string())]))
+                .record(
+                  z.string(),
+                  z.union([
+                    z.string(),
+                    z.array(z.string()),
+                    // Carousel cards and thread posts.
+                    z.array(z.record(z.string(), z.string())),
+                  ]),
+                )
                 .optional(),
               beatMapping: z
                 .array(z.object({ role: z.string(), line: z.string() }))
@@ -63,11 +73,16 @@ export function registerMemoryTools(server: McpServer): void {
               altText: z.string().optional(),
               rationale: z.string().optional(),
               originality: z.record(z.string(), z.unknown()).optional(),
+              fidelity: z.record(z.string(), z.unknown()).optional(),
               spec: z.record(z.string(), z.unknown()).optional(),
             }),
           )
           .min(1),
         platform: z.enum(PLATFORM_IDS as [string, ...string[]]).default("x"),
+        format: z
+          .string()
+          .optional()
+          .describe("The format id the copy was written for, e.g. carousel."),
         images: z
           .record(z.string(), z.object({ dataUrl: z.string(), prompt: z.string().optional() }))
           .optional()
@@ -87,6 +102,7 @@ export function registerMemoryTools(server: McpServer): void {
             typeof saveSwipe
           >[0]["variations"],
           platform: args.platform,
+          format: args.format,
           images: args.images,
         });
         return ok({
@@ -204,6 +220,110 @@ export function registerMemoryTools(server: McpServer): void {
 
       try {
         return ok(await buildPlaybook());
+      } catch (err) {
+        return fail(describeError(err));
+      }
+    },
+  );
+
+
+  /* ---------------------------------------------------------------- *
+   * Grounding
+   * ---------------------------------------------------------------- */
+
+  server.registerTool(
+    "get_reference_ads",
+    {
+      title: "The best saved ads of a given shape, as examples to write against",
+      description: [
+        "Return the highest-engagement saved ads, ranked by engagement RATE rather than raw likes — a 400-like post from a 2,000-follower account outperformed a 4,000-like post from a 500,000-follower one, and raw counts get that backwards.",
+        "",
+        "Call this BEFORE writing, with the source ad's `hookType`. Three ads that measurably worked in this niche ground the writing in a way no further instruction can: they show the register, the rhythm and the level of specificity that this audience actually responded to.",
+        "",
+        "Each reference carries its source copy, its structural fingerprint, and the variations that were written from it WITH their originality scores — so you can see which rewrites passed and what they did differently.",
+        "",
+        "Never copy phrasing from a reference. They are a calibration, not a source: text lifted from one fails check_originality against its own record later, and the guards do not care where a phrase came from.",
+        "",
+        "Returns an empty list when the swipe file is too thin to be worth quoting. That is a real answer — write without examples rather than treating one saved ad as a pattern.",
+      ].join("\n"),
+      inputSchema: {
+        hookType: z
+          .string()
+          .optional()
+          .describe(
+            "Match the source's hook type, e.g. stat-callout, contrarian, listicle-promise.",
+          ),
+        query: z
+          .string()
+          .optional()
+          .describe("Free text, for narrowing to a niche or product area."),
+        limit: z.number().int().min(1).max(5).default(3),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true },
+    },
+    async ({ hookType, query, limit }) => {
+      const missing = requireSwipeFile();
+      if (missing) return fail(missing);
+
+      try {
+        // Pull wide, then rank — the query orders by recency, and recency is
+        // not the question being asked here.
+        let pool = await listSwipes({ search: query, hookType, limit: 50 });
+
+        // A hook type with nothing in it should fall back rather than return
+        // nothing: a well-performing ad of another shape still calibrates tone.
+        let widened = false;
+        if (pool.length < limit && hookType) {
+          pool = await listSwipes({ search: query, limit: 50 });
+          widened = true;
+        }
+
+        const ranked = pool
+          .map((s) => {
+            const rate = engagementRate(
+              (s.engagement ?? {}) as Parameters<typeof engagementRate>[0],
+            );
+            return { swipe: s, rate };
+          })
+          // An ad with no engagement figures cannot be called well-performing.
+          .filter((r) => r.rate != null)
+          .sort((a, b) => (b.rate ?? 0) - (a.rate ?? 0))
+          .slice(0, limit);
+
+        const references = ranked.map(({ swipe, rate }) => {
+          const passing = (swipe.clones ?? []).filter(
+            (c) => c.originality?.pass !== false,
+          );
+
+          return {
+            id: swipe.id,
+            author: swipe.author_handle,
+            hookType: swipe.hook_type,
+            engagementRatePct:
+              rate != null ? Number((rate * 100).toFixed(3)) : null,
+            sourceText: swipe.original_text,
+            // The fingerprint is the transferable part: what shape this was.
+            shape: fingerprint(swipe.original_text),
+            whyItWorked: swipe.dna?.whyItWorks ?? null,
+            hook: swipe.dna?.hook ?? null,
+            variationsThatPassed: passing.map((c) => ({
+              angle: c.angle,
+              text: c.body,
+              originalityScore: c.originality?.score ?? null,
+            })),
+          };
+        });
+
+        return ok({
+          count: references.length,
+          hookType: hookType ?? null,
+          widenedBeyondHookType: widened,
+          usage:
+            references.length === 0
+              ? "Nothing in the swipe file has engagement figures to rank by. Write without references."
+              : "Calibrate register, rhythm and specificity against these. Do not reuse their wording.",
+          references,
+        });
       } catch (err) {
         return fail(describeError(err));
       }

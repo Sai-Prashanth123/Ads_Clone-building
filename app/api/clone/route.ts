@@ -95,19 +95,21 @@ export async function POST(req: Request) {
         send({ type: "post", post, imageAnalysed });
         send({ type: "dna", dna });
 
-        /* -- 3. Rewrite, then enforce originality ---------------------- */
+        /* -- 3. Rewrite, then enforce both guards ---------------------- */
+        const selectedAngles = parseAngles(body.angles);
+
         const variations = await generateVariations({
           post,
           dna,
           brand: body.brand ?? null,
           platform: getPlatform(body.targetPlatform),
-          selectedAngles: parseAngles(body.angles),
+          selectedAngles,
           onProgress: (p) => {
             if (p.phase === "drafting") {
               send({
                 type: "status",
                 stage: "writing",
-                message: "Writing three angles",
+                message: `Writing ${selectedAngles.length} angle${selectedAngles.length === 1 ? "" : "s"}`,
               });
             } else if (p.phase === "checking") {
               send({
@@ -119,14 +121,20 @@ export async function POST(req: Request) {
               // A provider blip or model switch, not a guard rejection.
               send({ type: "status", stage: "writing", message: p.message });
             } else {
-              // The retry is the longest single wait in the run. Saying which
-              // phrases tripped the guard turns dead time into information.
+              /* The retry is the longest single wait in the run, so the
+               * message says which guard tripped and on what. Two different
+               * failures reach here: lifted wording, and a shape that drifted
+               * away from the source. */
+              const reason = p.phrases.length
+                ? `too close to the source — rewriting without “${p.phrases[0]}”`
+                : p.drift?.length
+                  ? `lost the original's shape — ${p.drift[0].replace(/.$/, "")}`
+                  : "did not clear the guards — rewriting";
+
               send({
                 type: "status",
                 stage: "rewriting",
-                message: `${p.failing} of 3 drifted too close — rewriting${
-                  p.phrases.length ? ` without “${p.phrases[0]}”` : ""
-                }`,
+                message: `${p.failing} of ${selectedAngles.length} ${reason}`,
               });
             }
           },

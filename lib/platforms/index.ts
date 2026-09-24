@@ -12,37 +12,32 @@
  * runs, it just stops being read.
  */
 
-export type PlatformId = "x" | "linkedin" | "meta" | "google";
+import {
+  definePlatform,
+  type AspectRatio as AspectRatioT,
+  type FieldSpec as FieldSpecT,
+  type FormatSpec as FormatSpecT,
+  type PlatformId as PlatformIdT,
+  type PlatformSpec as PlatformSpecT,
+} from "./types";
+import {
+  GOOGLE_RSA,
+  LINKEDIN_CAROUSEL,
+  META_CAROUSEL,
+  META_STORY,
+  X_THREAD,
+} from "./formats";
 
-export type AspectRatio = "16:9" | "1:1" | "4:5" | "1.91:1";
+export type {
+  PlatformId,
+  AspectRatio,
+  FieldSpec,
+  GroupSpec,
+  FormatSpec,
+  PlatformSpec,
+} from "./types";
 
-export type FieldSpec = {
-  key: string;
-  label: string;
-  /** Hard limit. Over this is a failure. */
-  max: number;
-  /** Truncation point. Over this is a warning. */
-  recommended?: number;
-  multiline?: boolean;
-  /** Fields the platform wants several of, e.g. Google's short headlines. */
-  repeat?: { min: number; max: number };
-  hint: string;
-};
-
-export type PlatformSpec = {
-  id: PlatformId;
-  label: string;
-  /** What the format is called in the ad manager. */
-  formatName: string;
-  fields: FieldSpec[];
-  aspectRatios: AspectRatio[];
-  defaultAspect: AspectRatio;
-  ctaOptions?: string[];
-  /** Shown in the picker so the choice is informed. */
-  note: string;
-};
-
-export const PLATFORMS: Record<PlatformId, PlatformSpec> = {
+const RAW = {
   x: {
     id: "x",
     label: "X",
@@ -86,6 +81,7 @@ export const PLATFORMS: Record<PlatformId, PlatformSpec> = {
         key: "cta",
         label: "Call to action",
         max: 20,
+        fixedChoice: true,
         hint: "Must be one of LinkedIn's fixed button labels.",
       },
     ],
@@ -175,7 +171,101 @@ export const PLATFORMS: Record<PlatformId, PlatformSpec> = {
   },
 };
 
-export const PLATFORM_IDS = Object.keys(PLATFORMS) as PlatformId[];
+/**
+ * Each platform's default (single-image) layout becomes its first format, and
+ * the extra formats follow. `definePlatform` mirrors the first onto the top
+ * level, so every existing `spec.fields` call site keeps working.
+ */
+export const PLATFORMS: Record<PlatformIdT, PlatformSpecT> = {
+  x: definePlatform({
+    id: "x",
+    label: RAW.x.label,
+    note: RAW.x.note,
+    formats: [
+      {
+        id: "post",
+        label: RAW.x.formatName,
+        note: "A single promoted post.",
+        fields: RAW.x.fields as FieldSpecT[],
+        aspectRatios: RAW.x.aspectRatios as AspectRatioT[],
+        defaultAspect: RAW.x.defaultAspect as AspectRatioT,
+      },
+      X_THREAD,
+    ],
+  }),
+
+  linkedin: definePlatform({
+    id: "linkedin",
+    label: RAW.linkedin.label,
+    note: RAW.linkedin.note,
+    formats: [
+      {
+        id: "single-image",
+        label: RAW.linkedin.formatName,
+        note: "One image, intro text, headline and a fixed CTA button.",
+        fields: RAW.linkedin.fields as FieldSpecT[],
+        aspectRatios: RAW.linkedin.aspectRatios as AspectRatioT[],
+        defaultAspect: RAW.linkedin.defaultAspect as AspectRatioT,
+        ctaOptions: RAW.linkedin.ctaOptions,
+      },
+      LINKEDIN_CAROUSEL,
+    ],
+  }),
+
+  meta: definePlatform({
+    id: "meta",
+    label: RAW.meta.label,
+    note: RAW.meta.note,
+    formats: [
+      {
+        id: "feed",
+        label: RAW.meta.formatName,
+        note: "Standard feed placement.",
+        fields: RAW.meta.fields as FieldSpecT[],
+        aspectRatios: RAW.meta.aspectRatios as AspectRatioT[],
+        defaultAspect: RAW.meta.defaultAspect as AspectRatioT,
+      },
+      META_CAROUSEL,
+      META_STORY,
+    ],
+  }),
+
+  google: definePlatform({
+    id: "google",
+    label: RAW.google.label,
+    note: RAW.google.note,
+    formats: [
+      {
+        id: "display",
+        label: RAW.google.formatName,
+        note: "Responsive display across the Google network.",
+        fields: RAW.google.fields as FieldSpecT[],
+        aspectRatios: RAW.google.aspectRatios as AspectRatioT[],
+        defaultAspect: RAW.google.defaultAspect as AspectRatioT,
+      },
+      GOOGLE_RSA,
+    ],
+  }),
+};
+
+export const PLATFORM_IDS = Object.keys(PLATFORMS) as PlatformIdT[];
+
+/** A specific format, falling back to the platform's default. */
+export function getFormat(
+  platform: string | undefined | null,
+  formatId?: string | null,
+): FormatSpecT {
+  const spec = getPlatform(platform);
+  if (!formatId) return spec.formats[0];
+  return spec.formats.find((f) => f.id === formatId) ?? spec.formats[0];
+}
+
+/** Every format across every platform, for pickers and documentation. */
+export function allFormats(): { platform: PlatformIdT; format: FormatSpecT }[] {
+  return PLATFORM_IDS.flatMap((id) =>
+    PLATFORMS[id].formats.map((format) => ({ platform: id, format })),
+  );
+}
 
 /**
  * The ceiling to give the MODEL, which is not the platform's hard limit.
@@ -190,38 +280,65 @@ export const PLATFORM_IDS = Object.keys(PLATFORMS) as PlatformId[];
  * sentence that runs slightly over. Validation still reports against the
  * platform's real numbers — the schema steers, the report tells the truth.
  */
-export function generationMax(field: FieldSpec): number {
+export function generationMax(field: FieldSpecT): number {
   if (!field.recommended) return field.max;
   return Math.min(field.max, Math.round(field.recommended * 1.4));
 }
 
-export function getPlatform(id: string | undefined | null): PlatformSpec {
-  return PLATFORMS[(id as PlatformId) ?? "x"] ?? PLATFORMS.x;
+export function getPlatform(id: string | undefined | null): PlatformSpecT {
+  return PLATFORMS[(id as PlatformIdT) ?? "x"] ?? PLATFORMS.x;
 }
 
 /** The field whose text represents the ad in listings and originality checks. */
-export function primaryFieldKey(spec: PlatformSpec): string {
+export function primaryFieldKey(spec: PlatformSpecT): string {
   return spec.fields[0].key;
 }
 
-/** Flatten a platform's field map into one string, for scoring and previews. */
+/**
+ * Flatten a format's field map into one string, for scoring and previews.
+ *
+ * Groups are flattened in reading order with their own fields joined, because
+ * the originality and fidelity guards score the ad as a reader meets it. A
+ * carousel whose cards were dropped here would score as a one-line ad and pass
+ * every check while the cards themselves went unexamined.
+ */
 export function fieldsToText(
-  spec: PlatformSpec,
-  fields: Record<string, string | string[]>,
+  spec: PlatformSpecT | FormatSpecT,
+  fields: Record<string, unknown>,
 ): string {
-  return spec.fields
-    .map(({ key }) => {
-      const value = fields[key];
-      if (Array.isArray(value)) return value.join("\n");
-      return value ?? "";
-    })
-    .filter(Boolean)
-    .join("\n\n")
-    .trim();
+  const flat = (value: unknown): string => {
+    if (typeof value === "string") return value;
+    if (Array.isArray(value)) return value.map(flat).filter(Boolean).join("\n");
+    if (value && typeof value === "object") {
+      return Object.values(value as Record<string, unknown>)
+        .map(flat)
+        .filter(Boolean)
+        .join("\n");
+    }
+    return "";
+  };
+
+  const parts = spec.fields.map((f) => flat(fields[f.key]));
+
+  for (const group of spec.groups ?? []) {
+    const items = fields[group.key];
+    if (!Array.isArray(items)) continue;
+
+    items.forEach((item, index) => {
+      const body = group.fields
+        .map((f) => flat((item as Record<string, unknown>)?.[f.key]))
+        .filter(Boolean)
+        .join("\n");
+
+      if (body) parts.push(`${group.itemLabel} ${index + 1}\n${body}`);
+    });
+  }
+
+  return parts.filter(Boolean).join("\n\n").trim();
 }
 
 /** Pixel dimensions for an aspect, used by the image providers. */
-export function aspectDimensions(aspect: AspectRatio): {
+export function aspectDimensions(aspect: AspectRatioT): {
   width: number;
   height: number;
 } {
@@ -232,6 +349,8 @@ export function aspectDimensions(aspect: AspectRatio): {
       return { width: 832, height: 1024 };
     case "1.91:1":
       return { width: 1200, height: 628 };
+    case "9:16":
+      return { width: 576, height: 1024 };
     case "16:9":
     default:
       return { width: 1024, height: 576 };

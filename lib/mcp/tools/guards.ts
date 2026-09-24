@@ -6,13 +6,19 @@ import {
   CONVERGENCE_THRESHOLDS,
   THRESHOLDS,
 } from "../../originality";
+import type { FormatSpec, PlatformId } from "../../platforms/types";
 import {
   generationMax,
-  getPlatform,
+  getFormat,
   PLATFORM_IDS,
   PLATFORMS,
 } from "../../platforms";
 import { validateAgainstSpec } from "../../platforms/validate";
+import {
+  checkFidelity,
+  FIDELITY_THRESHOLD,
+  verifyBeatMapping,
+} from "../../fidelity";
 import { ok } from "../result";
 
 /**
@@ -81,6 +87,109 @@ export function registerGuardTools(server: McpServer): void {
   );
 
   server.registerTool(
+    "check_fidelity",
+    {
+      title: "Check the clone kept the original's shape",
+      description: [
+        "Measure how FAITHFUL a draft is to its source — the opposite axis from check_originality.",
+        "",
+        "The two pull against each other. Unrelated text scores 100% original and 0% faithful; a verbatim copy is the reverse. A good clone is high on BOTH, and nothing else can tell a faithful rewrite from a draft that drifted into a different ad.",
+        "",
+        "Compares opening move, list shape, sentence rhythm, block structure, emphasis and stat density — computed from the text, not judged. `drifted` names exactly what changed, e.g. 'the original opens with a number; yours opens with a question'.",
+        "",
+        `Fails below ${Math.round(FIDELITY_THRESHOLD * 100)}. If it fails, you have written a good ad that is not a clone of this one.`,
+      ].join("\n"),
+      inputSchema: {
+        candidate: z.string().min(1).describe("Your draft."),
+        original: z.string().min(1).describe("The source ad's text."),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true },
+    },
+    async ({ candidate, original }) => ok(checkFidelity(candidate, original)),
+  );
+
+  server.registerTool(
+    "check_clone",
+    {
+      title: "All three verdicts at once",
+      description: [
+        "Run every guard on one draft and return a combined verdict: originality, fidelity, and platform spec.",
+        "",
+        "Use this rather than the individual tools. The three have to be read together — passing one while failing another is the interesting case, and checking them separately invites fixing one and breaking the next.",
+        "",
+        "Optionally verifies beatMapping: every claimed line must actually appear in your copy, and the roles must follow the source's beat order. Without this the mapping is just an assertion.",
+      ].join("\n"),
+      inputSchema: {
+        candidate: z
+          .string()
+          .min(1)
+          .describe("The draft's full text, all fields joined."),
+        original: z.string().min(1),
+        platform: z.enum(PLATFORM_IDS as [string, ...string[]]).optional(),
+        format: z.string().optional().describe("Format id, e.g. 'carousel'."),
+        fields: z
+          .record(z.string(), z.unknown())
+          .optional()
+          .describe("Field key -> copy, for the spec check."),
+        beatMapping: z
+          .array(z.object({ role: z.string(), line: z.string() }))
+          .optional(),
+        sourceBeatRoles: z
+          .array(z.string())
+          .optional()
+          .describe("Beat roles from the source DNA, in order."),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true },
+    },
+    async ({
+      candidate,
+      original,
+      platform,
+      format,
+      fields,
+      beatMapping,
+      sourceBeatRoles,
+    }) => {
+      const originality = checkOriginality(candidate, original);
+      const fidelity = checkFidelity(candidate, original);
+
+      const spec =
+        platform && fields
+          ? validateAgainstSpec(getFormat(platform, format), fields)
+          : null;
+
+      const beats =
+        beatMapping && sourceBeatRoles
+          ? verifyBeatMapping(candidate, beatMapping, sourceBeatRoles)
+          : null;
+
+      const failures = [
+        !originality.pass && "originality",
+        !fidelity.pass && "fidelity",
+        spec && !spec.pass && "platform spec",
+        beats && !beats.pass && "beat mapping",
+      ].filter(Boolean);
+
+      return ok({
+        verdict: failures.length === 0 ? "PASS" : "FAIL",
+        failing: failures,
+        // Both axes in one line, because the shape of the pair is the signal.
+        summary: `originality ${originality.score}/100 · fidelity ${fidelity.score}/100${
+          spec ? ` · spec ${spec.pass ? "ok" : "off-spec"}` : ""
+        }`,
+        nextStep:
+          failures.length === 0
+            ? "All guards pass. Safe to present and save."
+            : "Revise and check again. Details below name exactly what to change.",
+        originality,
+        fidelity,
+        spec,
+        beatMapping: beats,
+      });
+    },
+  );
+
+  server.registerTool(
     "validate_ad",
     {
       title: "Validate copy against a platform's published spec",
@@ -95,56 +204,93 @@ export function registerGuardTools(server: McpServer): void {
       ].join("\n"),
       inputSchema: {
         platform: z.enum(PLATFORM_IDS as [string, ...string[]]),
+        format: z
+          .string()
+          .optional()
+          .describe("Format id from get_platform_spec, e.g. carousel, thread, search, story."),
         fields: z
-          .record(z.string(), z.union([z.string(), z.array(z.string())]))
-          .describe("Field key -> copy. Arrays for repeated fields."),
+          .record(z.string(), z.unknown())
+          .describe("Field key -> copy. Arrays for repeated fields; arrays of objects for card groups."),
       },
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
-    async ({ platform, fields }) =>
-      ok(validateAgainstSpec(getPlatform(platform), fields)),
+    async ({ platform, format, fields }) =>
+      ok(validateAgainstSpec(getFormat(platform, format), fields)),
   );
 
   server.registerTool(
     "get_platform_spec",
     {
-      title: "Get a platform's ad format",
+      title: "Get a platform's ad formats",
       description: [
-        "The field structure, character limits and aspect ratios for an ad platform. Call this BEFORE writing copy — the field names here are what validate_ad and save_swipe expect.",
+        "Field structure, character limits and aspect ratios for every format a platform offers. Call this BEFORE writing copy — the field names here are what validate_ad, check_clone and save_swipe expect.",
         "",
-        "`writeAtMost` is the length to aim for. It sits slightly above `recommended` (the truncation point) and well below `max` (the hard limit), because a field given 3,000 characters of room gets filled regardless of what the guidance says.",
+        "Each platform has SEVERAL formats, and the choice matters more than the wording. A long-form listicle cloned into a single X post loses the list; cloned into a thread it keeps it. Read each format's `note` and pick the one whose shape matches the source ad, then pass its `id` as `format` everywhere after.",
         "",
-        "Omit `platform` to get every platform.",
+        "`writeAtMost` is the length to aim for. It sits slightly above `truncatesAt` (where the feed cuts the copy) and well below `hardLimit` (where the platform rejects the ad), because a field given 3,000 characters of room gets filled regardless of what the guidance says.",
+        "",
+        "`groups` are repeating records — carousel cards, thread posts. Supply them as an array of objects keyed by the group's `key`, each object carrying that group's fields. `fields` with a `repeat` are a plain array of strings instead.",
+        "",
+        "Omit `platform` for every platform, or pass `format` to get one format alone.",
       ].join("\n"),
       inputSchema: {
         platform: z.enum(PLATFORM_IDS as [string, ...string[]]).optional(),
+        format: z
+          .string()
+          .optional()
+          .describe("Narrow to one format id. Requires platform."),
       },
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
-    async ({ platform }) => {
-      const specs = platform
-        ? [getPlatform(platform)]
-        : PLATFORM_IDS.map((id) => PLATFORMS[id]);
+    async ({ platform, format }) => {
+      const describeField = (f: (typeof PLATFORMS)["x"]["fields"][number]) => ({
+        key: f.key,
+        label: f.label,
+        hardLimit: f.max,
+        truncatesAt: f.recommended,
+        writeAtMost: generationMax(f),
+        repeat: f.repeat,
+        multiline: f.multiline,
+        hint: f.hint,
+      });
+
+      const describeFormat = (spec: FormatSpec) => ({
+        id: spec.id,
+        label: spec.label,
+        note: spec.note,
+        aspectRatios: spec.aspectRatios,
+        defaultAspect: spec.defaultAspect,
+        ctaOptions: spec.ctaOptions,
+        fields: spec.fields.map(describeField),
+        groups: spec.groups?.map((g) => ({
+          key: g.key,
+          label: g.label,
+          itemLabel: g.itemLabel,
+          count: { min: g.min, max: g.max },
+          hint: g.hint,
+          fields: g.fields.map(describeField),
+        })),
+      });
+
+      // One format asked for by name.
+      if (platform && format) {
+        const spec = getFormat(platform, format);
+        return ok({ platform, ...describeFormat(spec) });
+      }
+
+      const ids = platform ? [platform as PlatformId] : PLATFORM_IDS;
 
       return ok(
-        specs.map((spec) => ({
-          id: spec.id,
-          label: spec.label,
-          formatName: spec.formatName,
-          note: spec.note,
-          aspectRatios: spec.aspectRatios,
-          defaultAspect: spec.defaultAspect,
-          ctaOptions: spec.ctaOptions,
-          fields: spec.fields.map((f) => ({
-            key: f.key,
-            label: f.label,
-            hardLimit: f.max,
-            truncatesAt: f.recommended,
-            writeAtMost: generationMax(f),
-            repeat: f.repeat,
-            hint: f.hint,
-          })),
-        })),
+        ids.map((id) => {
+          const spec = PLATFORMS[id];
+          return {
+            id: spec.id,
+            label: spec.label,
+            note: spec.note,
+            defaultFormat: spec.formats[0].id,
+            formats: spec.formats.map(describeFormat),
+          };
+        }),
       );
     },
   );

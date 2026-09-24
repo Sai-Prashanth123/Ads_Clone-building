@@ -1,4 +1,4 @@
-import type { FieldSpec, PlatformSpec } from "./index";
+import type { FieldSpec, FormatSpec, GroupSpec, PlatformSpec } from "./types";
 
 /**
  * The platform-spec guard.
@@ -104,19 +104,60 @@ function checkRepeated(values: string[], field: FieldSpec): FieldReport {
   };
 }
 
+/**
+ * A repeating group — carousel cards, thread posts.
+ *
+ * Distinct from `repeat`, which repeats one field. A card carries several
+ * fields at once, N cards over, so each entry is validated as a small record
+ * and reported by position: "Card 3 headline is 6 over" beats "a headline
+ * somewhere is too long".
+ */
+function checkGroup(
+  raw: unknown,
+  group: GroupSpec,
+): { reports: FieldReport[]; problems: string[] } {
+  const items = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : [];
+  const problems: string[] = [];
+
+  if (items.length < group.min || items.length > group.max) {
+    problems.push(
+      `${group.label}: ${items.length} supplied, needs ${group.min}–${group.max}.`,
+    );
+  }
+
+  const reports: FieldReport[] = [];
+
+  items.forEach((item, index) => {
+    for (const field of group.fields) {
+      const value = item?.[field.key];
+      const text = typeof value === "string" ? value : "";
+      const report = checkSingle(text, field);
+
+      const label = `${group.itemLabel} ${index + 1} · ${field.label}`;
+      reports.push({ ...report, key: `${group.key}[${index}].${field.key}`, label });
+
+      if (report.message) {
+        problems.push(report.message.replace(field.label, label));
+      }
+    }
+  });
+
+  return { reports, problems };
+}
+
 export function validateAgainstSpec(
-  spec: PlatformSpec,
-  fields: Record<string, string | string[] | undefined>,
+  spec: PlatformSpec | FormatSpec,
+  fields: Record<string, unknown>,
 ): SpecReport {
   const reports = spec.fields.map((field) => {
     const raw = fields[field.key];
 
     if (field.repeat) {
-      const values = Array.isArray(raw) ? raw : raw ? [raw] : [];
+      const values = Array.isArray(raw) ? (raw as string[]) : raw ? [String(raw)] : [];
       return checkRepeated(values, field);
     }
 
-    const value = Array.isArray(raw) ? raw.join(" ") : (raw ?? "");
+    const value = Array.isArray(raw) ? raw.join(" ") : ((raw as string) ?? "");
     return checkSingle(value, field);
   });
 
@@ -124,11 +165,22 @@ export function validateAgainstSpec(
     .map((r) => r.message)
     .filter((m): m is string => Boolean(m));
 
+  // Groups append their own positional reports and problems.
+  const groupStatuses: FieldStatus[] = [];
+  for (const group of spec.groups ?? []) {
+    const result = checkGroup(fields[group.key], group);
+    reports.push(...result.reports);
+    problems.push(...result.problems);
+
+    const countWrong = result.problems.some((p) => p.includes("needs"));
+    if (countWrong) groupStatuses.push("count");
+  }
+
+  const allOk = (r: FieldReport) => r.status === "ok" || r.status === "warn";
+
   return {
-    platform: spec.id,
-    pass: reports.every(
-      (r) => r.status === "ok" || r.status === "warn",
-    ),
+    platform: "id" in spec ? spec.id : "unknown",
+    pass: reports.every(allOk) && groupStatuses.length === 0,
     hasWarnings: reports.some((r) => r.status === "warn"),
     fields: reports,
     problems,

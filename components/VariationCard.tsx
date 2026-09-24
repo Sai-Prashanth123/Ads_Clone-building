@@ -4,7 +4,8 @@ import * as React from "react";
 import { Chip, CopyButton, Meter, Panel } from "./primitives";
 import type { AspectRatio } from "@/lib/platforms";
 import type { ImageChoice } from "@/lib/ai/provider";
-import type { PlatformSpec } from "@/lib/platforms";
+import type { GroupSpec, PlatformSpec } from "@/lib/platforms";
+import type { FieldReport } from "@/lib/platforms/validate";
 import { ANGLE_LABELS, type Angle } from "@/lib/ai/schemas";
 import type { ScoredVariation } from "@/lib/ai/variations";
 
@@ -18,6 +19,123 @@ function scoreTone(score: number, pass: boolean) {
   if (!pass) return "alert" as const;
   if (score < 75) return "caution" as const;
   return "brand" as const;
+}
+
+/**
+ * One field's copy plus its character verdict.
+ *
+ * Shared by top-level fields and by the fields inside a carousel card, so a
+ * card headline two characters over reads exactly like a headline two over.
+ */
+function CopyField({
+  label,
+  max,
+  recommended,
+  values,
+  report,
+}: {
+  label: string;
+  max: number;
+  recommended?: number;
+  values: string[];
+  report?: FieldReport;
+}) {
+  if (values.length === 0) return null;
+
+  const tone =
+    report?.status === "over" || report?.status === "count"
+      ? "var(--alert)"
+      : report?.status === "warn"
+        ? "var(--caution)"
+        : undefined;
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-1">
+        <span className="t-label">{label}</span>
+        <span className="t-label tabular-nums" style={{ color: tone }}>
+          {report?.chars ?? values.join("").length}
+          {recommended ? `/${recommended}` : `/${max}`}
+        </span>
+      </div>
+
+      <div className="sunken p-2.5 flex flex-col gap-1.5">
+        {values.map((value, i) => (
+          <pre
+            key={i}
+            className="whitespace-pre-wrap break-words font-[inherit] text-[12px] leading-[1.55]"
+          >
+            {value}
+          </pre>
+        ))}
+      </div>
+
+      {report?.message && (
+        <p className="text-[11px] leading-[1.45] mt-1" style={{ color: tone }}>
+          {report.message}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Every card in a carousel or post in a thread, numbered as the reader meets them. */
+function CardGroup({
+  group,
+  items,
+  reports,
+}: {
+  group: GroupSpec;
+  items: Record<string, string>[];
+  reports?: FieldReport[];
+}) {
+  if (items.length === 0) return null;
+
+  const countOff = items.length < group.min || items.length > group.max;
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-1.5">
+        <span className="t-label">{group.label}</span>
+        <span
+          className="t-label tabular-nums"
+          style={countOff ? { color: "var(--alert)" } : undefined}
+        >
+          {items.length}/{group.max}
+        </span>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        {items.map((item, index) => (
+          <div key={index} className="border-l-2 border-[var(--line)] pl-2.5">
+            <div className="t-label mb-1.5 text-[var(--ink-2)]">
+              {group.itemLabel} {index + 1}
+            </div>
+            <div className="flex flex-col gap-2">
+              {group.fields.map((field) => (
+                <CopyField
+                  key={field.key}
+                  label={field.label}
+                  max={field.max}
+                  recommended={field.recommended}
+                  values={item?.[field.key] ? [item[field.key]] : []}
+                  report={reports?.find(
+                    (r) => r.key === `${group.key}[${index}].${field.key}`,
+                  )}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {countOff && (
+        <p className="text-[11px] leading-[1.45] mt-1" style={{ color: "var(--alert)" }}>
+          {group.label}: {items.length} supplied, needs {group.min}–{group.max}.
+        </p>
+      )}
+    </div>
+  );
 }
 
 export function VariationCard({
@@ -56,6 +174,9 @@ export function VariationCard({
   const meta = ANGLE_LABELS[variation.angle as Angle];
   const { originality: o } = variation;
   const tone = scoreTone(o.score, o.pass);
+  // Optional: saved runs from before the fidelity guard existed have no report.
+  const f = variation.fidelity;
+  const fTone = f ? scoreTone(f.score, f.pass) : "brand";
   const spec = imageChoices.find((m) => m.id === model) ?? imageChoices[0];
 
   async function generate() {
@@ -111,50 +232,45 @@ export function VariationCard({
       {/* The copy, in the target platform's actual fields */}
       {platform.fields.map((field) => {
         const raw = variation.fields?.[field.key];
-        const values = Array.isArray(raw) ? raw : raw != null ? [raw] : [];
-        const report = variation.spec?.fields.find((f) => f.key === field.key);
+        const values = (
+          Array.isArray(raw) ? raw : raw != null ? [raw] : []
+        ).filter((v): v is string => typeof v === "string");
 
         // Fall back to the flat text when a variation predates the platform
         // layer, so old saved runs still render.
         if (values.length === 0 && field.key === platform.fields[0].key) {
           values.push(variation.text);
         }
-        if (values.length === 0) return null;
-
-        const fieldTone =
-          report?.status === "over" || report?.status === "count"
-            ? "var(--alert)"
-            : report?.status === "warn"
-              ? "var(--caution)"
-              : undefined;
 
         return (
-          <div key={field.key}>
-            <div className="flex items-baseline justify-between mb-1">
-              <span className="t-label">{field.label}</span>
-              <span className="t-label tabular-nums" style={{ color: fieldTone }}>
-                {report?.chars ?? values.join("").length}
-                {field.recommended ? `/${field.recommended}` : `/${field.max}`}
-              </span>
-            </div>
+          <CopyField
+            key={field.key}
+            label={field.label}
+            max={field.max}
+            recommended={field.recommended}
+            values={values}
+            report={variation.spec?.fields.find((f) => f.key === field.key)}
+          />
+        );
+      })}
 
-            <div className="sunken p-2.5 flex flex-col gap-1.5">
-              {values.map((value, i) => (
-                <pre
-                  key={i}
-                  className="whitespace-pre-wrap break-words font-[inherit] text-[12px] leading-[1.55]"
-                >
-                  {value}
-                </pre>
-              ))}
-            </div>
+      {/* Carousel cards, thread posts — N records rather than N keys */}
+      {platform.groups?.map((group) => {
+        const raw = variation.fields?.[group.key];
+        const items = Array.isArray(raw)
+          ? raw.filter(
+              (v): v is Record<string, string> =>
+                typeof v === "object" && v !== null,
+            )
+          : [];
 
-            {report?.message && (
-              <p className="text-[11px] leading-[1.45] mt-1" style={{ color: fieldTone }}>
-                {report.message}
-              </p>
-            )}
-          </div>
+        return (
+          <CardGroup
+            key={group.key}
+            group={group}
+            items={items}
+            reports={variation.spec?.fields}
+          />
         );
       })}
 
@@ -236,6 +352,52 @@ export function VariationCard({
           </div>
         )}
       </div>
+
+
+      {/* Fidelity — the other half of the promise.
+          Originality alone cannot distinguish a faithful rewrite from a draft
+          that wandered into a different ad, so both are shown side by side. */}
+      {f && (
+        <div>
+          <div className="flex items-baseline justify-between mb-1.5">
+            <span className="t-label">Fidelity to source</span>
+            <span
+              className="t-label tabular-nums"
+              style={fTone === "brand" ? undefined : { color: `var(--${fTone})` }}
+            >
+              {f.pass ? "same shape" : "drifted"}
+            </span>
+          </div>
+          <Meter value={f.score} tone={fTone} />
+          <div className="grid grid-cols-3 gap-2 mt-2">
+            {f.dimensions
+              .slice()
+              .sort((a, b) => a.match - b.match)
+              .slice(0, 3)
+              .map((d) => (
+                <div key={d.dimension}>
+                  <div className="t-label">{d.dimension}</div>
+                  <div className="text-[12px] tabular-nums text-[var(--ink-2)]">
+                    {Math.round(d.match * 100)}%
+                  </div>
+                </div>
+              ))}
+          </div>
+          {f.drifted.length > 0 && (
+            <ul className="mt-2 space-y-1">
+              {f.drifted.map((d) => (
+                <li
+                  key={d}
+                  className="text-[11px] leading-[1.45]"
+                  style={{ color: f.pass ? "var(--ink-2)" : "var(--caution)" }}
+                >
+                  {d}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {/* Beat mapping — the receipt that the framework survived */}
       <details className="group">

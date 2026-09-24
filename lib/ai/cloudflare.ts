@@ -53,6 +53,11 @@ function aspectPhrase(aspectRatio: string): string {
       return "Square 1:1 composition.";
     case "4:5":
       return "Vertical 4:5 portrait composition.";
+    case "9:16":
+      // Stories and Reels. The UI covers the top and bottom of the frame, so
+      // the subject has to be told to stay clear of it — cropping is not a
+      // risk here, it is certain.
+      return "Tall 9:16 vertical full-screen composition, subject centred with clear margins at the top and bottom.";
     case "1.91:1":
       // LinkedIn and Google both default to this, so omitting it silently
       // produced 16:9 creative for two of the four platforms.

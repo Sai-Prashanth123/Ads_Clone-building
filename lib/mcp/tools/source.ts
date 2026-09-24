@@ -1,6 +1,11 @@
 import { z } from "zod";
-import type { McpServer } from "@modelcontextprotocol/server";
-import type { CallToolResult } from "@modelcontextprotocol/server";
+import {
+  acceptedContent,
+  inputRequired,
+  type CallToolResult,
+  type InputRequiredResult,
+  type McpServer,
+} from "@modelcontextprotocol/server";
 import { fetchPost, manualPost } from "../../x/fetch-post";
 import { engagementRate, type SourcePost } from "../../x/types";
 import { fail, ok } from "../result";
@@ -112,6 +117,8 @@ export function registerSourceTools(server: McpServer): void {
         "For LinkedIn, Meta and Google, pass `text` (and optionally `imageUrl`, which may be a data: URL) instead. Those ad libraries sit behind bot protection, so pasting is the route in, not a fallback — everything downstream is identical.",
         "",
         "When a creative exists it comes back as an image block for you to read directly.",
+        "",
+        "If a URL turns out to be blocked, this tool asks the operator to paste the copy rather than failing, so the flow continues without a second call.",
       ].join("\n"),
       inputSchema: {
         url: z.string().optional().describe("An x.com/twitter.com post URL."),
@@ -124,7 +131,28 @@ export function registerSourceTools(server: McpServer): void {
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    async ({ url, text, imageUrl, author }) => {
+    async ({ url, text, imageUrl, author }, ctx): Promise<
+      CallToolResult | InputRequiredResult
+    > => {
+      /* Copy the operator pasted into the elicitation below, arriving on the
+       * retried call. Read through the schema-aware overload because it comes
+       * from the client and the SDK does not re-validate it. */
+      const pasted = acceptedContent(
+        ctx.mcpReq.inputResponses,
+        "paste",
+        z.object({ text: z.string().min(1), imageUrl: z.string().optional() }),
+      );
+
+      if (pasted) {
+        return buildResult(
+          manualPost({
+            text: pasted.text,
+            imageUrl: pasted.imageUrl || imageUrl,
+            author,
+          }),
+        );
+      }
+
       if (text?.trim()) {
         return buildResult(manualPost({ text, imageUrl, author }));
       }
@@ -136,13 +164,50 @@ export function registerSourceTools(server: McpServer): void {
       }
 
       const result = await fetchPost(url);
-      if (!result.ok) {
+      if (result.ok) return buildResult(result.post);
+
+      /* A blocked read is not a dead end — the copy is on the operator's
+       * screen. Asking for it mid-tool turns the LinkedIn / Meta / Google path
+       * from "returns an error and hopes somebody acts on it" into one pause in
+       * an otherwise unbroken flow.
+       *
+       * Gated on the client declaring elicitation: one that cannot ask gets the
+       * instruction instead, which is what used to happen in every case. */
+      if (!server.server.getClientCapabilities()?.elicitation) {
         return fail(
           `${result.message}\n\nIf this is a LinkedIn, Meta or Google ad, those libraries block automated reads — ask the operator to paste the copy and call this again with \`text\`.`,
         );
       }
 
-      return buildResult(result.post);
+      return inputRequired({
+        inputRequests: {
+          paste: inputRequired.elicit({
+            message: [
+              `That ad could not be read automatically: ${result.message}`,
+              "",
+              "LinkedIn, Meta and Google ad libraries are public to people and closed to automation, so pasting is the route in rather than a workaround. Open the ad and paste its copy below.",
+            ].join("\n"),
+            requestedSchema: {
+              type: "object",
+              properties: {
+                text: {
+                  type: "string",
+                  title: "Ad copy",
+                  description:
+                    "The ad's full text, line breaks and all. Everything downstream is identical to a fetched ad.",
+                },
+                imageUrl: {
+                  type: "string",
+                  title: "Creative URL",
+                  description:
+                    "Optional. A direct image URL, so the creative can be read too.",
+                },
+              },
+              required: ["text"],
+            },
+          }),
+        },
+      });
     },
   );
 

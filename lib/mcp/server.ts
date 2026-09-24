@@ -4,6 +4,7 @@ import { registerGuardTools } from "./tools/guards";
 import { registerCreativeTools } from "./tools/creative";
 import { registerMemoryTools } from "./tools/memory";
 import { registerBatchTools } from "./tools/batch";
+import { registerOrchestrationTools } from "./tools/orchestrate";
 import { registerPrompts } from "./prompts";
 import { registerResources } from "./resources";
 
@@ -27,15 +28,19 @@ export const MCP_INSTRUCTIONS = [
   "The workflow:",
   "1. fetch_ad — copy, engagement, and the creative as an image you read yourself.",
   "2. Deconstruct the framework: hook type, beat structure, formatting habits, audience, persuasion triggers, and what the visual DOES. Mechanics, not content.",
-  "3. get_platform_spec — the target's real field names and limits.",
-  "4. Write the variations: same skeleton, every surface changed.",
-  "5. VERIFY. validate_ad, check_originality against the source, check_convergence across the set.",
-  "6. Revise anything flagged and check again. This loop is the product.",
-  "7. generate_image, then save_swipe.",
+  "3. get_platform_spec — the target's real field names and limits. Each platform has SEVERAL formats (thread, carousel, story, search ad); pick the one whose shape matches the source rather than defaulting to the single image.",
+  "4. get_reference_ads — the saved ads that measurably worked in this niche, as calibration.",
+  "5. Write the variations: same skeleton, every surface changed.",
+  "6. VERIFY with check_clone. One call returns all three verdicts — originality against the source, fidelity to its shape, and the platform's character limits.",
+  "7. Revise what it names and check again. This loop is the product.",
+  "8. generate_image, then save_swipe.",
   "",
-  "Two rules that matter:",
+  "Or call clone_ad_auto, which runs that whole loop itself: it asks you to write, measures the result, and comes back with exactly what failed until it passes. Nothing unverified reaches the caller. Use it when you want the finished answer; use the individual tools when you want to make the calls yourself.",
+  "",
+  "Three rules that matter:",
   "• Never present copy that has not passed the guards. They return arithmetic — you cannot assess character counts or n-gram overlap by eye, and a confident guess is worse than a measurement.",
   "• Never reproduce the source's wording. The guards will catch it, and catching it late wastes the run.",
+  "• A clone has to pass BOTH axes. High originality alone means you may have written a good ad that is not a clone of this one; check_clone shows the pair together because the pair is the signal.",
   "",
   "Start with the clone_ad prompt if you want the whole sequence.",
 ].join("\n");
@@ -46,6 +51,7 @@ export function registerEverything(server: McpServer): void {
   registerCreativeTools(server);
   registerMemoryTools(server);
   registerBatchTools(server);
+  registerOrchestrationTools(server);
   registerPrompts(server);
   registerResources(server);
 }
